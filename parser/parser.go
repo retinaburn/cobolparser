@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 
@@ -29,7 +30,7 @@ type Field struct {
 	fieldType PicType
 }
 
-func NewFieldForString(label string, length int32, fieldType PicType) Field {
+func newFieldForString(label string, length int32, fieldType PicType) Field {
 	f := Field{}
 	f.label = label
 	f.length = length
@@ -37,7 +38,7 @@ func NewFieldForString(label string, length int32, fieldType PicType) Field {
 	return f
 }
 
-func NewFieldForDecimal(label string, s int32, p int32, fieldType PicType) Field {
+func newFieldForDecimal(label string, s int32, p int32, fieldType PicType) Field {
 	f := Field{}
 	f.label = label
 	f.sLength = s
@@ -72,7 +73,7 @@ func ParseLexData(lexer *Lexer) []Field {
 			if err != nil {
 				panic(err)
 			}
-			fields = append(fields, NewFieldForString(lastIdent, int32(foundLength), ANY_CHAR))
+			fields = append(fields, newFieldForString(lastIdent, int32(foundLength), ANY_CHAR))
 		}
 
 		// Capture Decimal Type "PIC S9(p)V9(s) COMP-3"
@@ -86,7 +87,7 @@ func ParseLexData(lexer *Lexer) []Field {
 			if err != nil {
 				panic(err)
 			}
-			fields = append(fields, NewFieldForDecimal(lastIdent, int32(foundPLength), int32(foundSLength), DECIMAL))
+			fields = append(fields, newFieldForDecimal(lastIdent, int32(foundPLength), int32(foundSLength), DECIMAL))
 		}
 
 		fmt.Printf("%d:%d\t|%s|\t|%s|\n", pos.line, pos.column, tok, lit)
@@ -94,7 +95,7 @@ func ParseLexData(lexer *Lexer) []Field {
 	return fields
 }
 
-func ParseData(fields []Field, data []int) {
+func ParseData(fields []Field, data []int) []Field {
 	m := map[uint8]string{
 		0: "", 1: "", 2: "", 3: "", 4: "",
 		5: "", 6: "", 7: "", 8: "", 9: "",
@@ -152,7 +153,7 @@ func ParseData(fields []Field, data []int) {
 
 	startPos := int32(0)
 	for i, v := range fields {
-		fmt.Printf("i=%d, label=%s, length=%d:\n", i, v.label, v.length)
+		log.Printf("i=%d, label=%s, length=%d:\n", i, v.label, v.length)
 		if v.fieldType == ANY_CHAR {
 			datum := data[startPos : startPos+v.length]
 			var byteSlice []uint8
@@ -171,17 +172,18 @@ func ParseData(fields []Field, data []int) {
 			for j, datum := range data[startPos : startPos+v.pLength] {
 				byteSlice = append(byteSlice, (uint8)(datum+256))
 				stringBuffer = stringBuffer + m[(uint8)(datum+256)]
-				fmt.Printf("%d: %d -> %d -> %s\n", j, datum, byteSlice, stringBuffer)
+				log.Printf("%d: %d -> %d -> %s\n", j, datum, byteSlice, stringBuffer)
 			}
 			startPos += v.pLength
 			stringBuffer = stringBuffer + "."
 			sIntCount := int32(0)
+			var stringAsDecimal decimal.Decimal
 			// parse the right side of the decimal
 			for j, datum := range data[startPos : startPos+v.sLength] {
 				sIntCount++
 				datumConverted := (uint8)(datum + 256)
 				byteSlice = append(byteSlice, datumConverted)
-				fmt.Printf("%08b\n", datumConverted)
+				log.Printf("%08b\n", datumConverted)
 				// if not the last element, just append
 				if sIntCount != v.sLength {
 					stringBuffer = stringBuffer + m[datumConverted]
@@ -192,27 +194,31 @@ func ParseData(fields []Field, data []int) {
 					lowBits := datumConverted & (8 + 4 + 2 + 1)
 					// make the high bits 240, to shift it up the code sheet
 					lowBits = lowBits | (128 + 64 + 32 + 16)
-					fmt.Printf("Low: %08b\n", lowBits)
+					log.Printf("Low: %08b\n", lowBits)
 					//append the new low byte to the string
 					stringBuffer = stringBuffer + m[lowBits]
 
 					// to get the sign (there is definitely and easier way with java bytes...)
 					// shift 4 bits to the right, to get rid of the low bits
 					highBits := datumConverted >> 4
-					fmt.Printf("High: %08b : %d\n", highBits, highBits)
+					log.Printf("High: %08b : %d\n", highBits, highBits)
 					signInt := int8(highBits)
-					fmt.Printf("Sign: %d\n", signInt)
+					log.Printf("Sign: %d\n", signInt)
 					//if the highBits (shifted) == 13 its a negative sign
 					if signInt == 13 {
 						stringBuffer = "-" + stringBuffer
 					}
 				}
-				stringAsDecimal, err := decimal.NewFromString(stringBuffer)
+				var err error
+				stringAsDecimal, err = decimal.NewFromString(stringBuffer)
 				if err != nil {
 					panic(err)
 				}
-				fmt.Printf("%d: %d -> %d -> %s -> %v\n", j, datum, byteSlice, stringBuffer, stringAsDecimal)
+				log.Printf("%d: %d -> %d -> %s -> %v\n", j, datum, byteSlice, stringBuffer, stringAsDecimal)
 			}
+			fmt.Printf("%d -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
 		}
 	}
+
+	return fields
 }
