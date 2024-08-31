@@ -1,0 +1,6 @@
+       01  CRAIG-AREA.
+           04  CRAIG-DATA.
+               05  TRANS-ID    PIC X(02).
+                   88 DEPOSITS  VALUE '20'.
+                   88 HOLDS     VALUE '50'.
+                   88 MST       VALUE '99'.

@@ -1,0 +1,6 @@
+       01  CRAIG-AREA.
+           04  CRAIG-DATA.
+               05  HDR-TIMESTAMP.
+                   10  HDR-DATE       PIC  9(08).
+                   10  HDR-TIME       PIC  9(08).
+                   10  HDR-DIFF-GMT   PIC  X(05).

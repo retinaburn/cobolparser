@@ -1,0 +1,3 @@
+       01  CRAIG-AREA.
+           04  CRAIG-DATA.
+               05  AVAIL-BAL    PIC S9(11)V99 VALUE ZERO.
