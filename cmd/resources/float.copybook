@@ -1,0 +1,4 @@
+       01  CRAIG-AREA.
+           04  CRAIG-DATA.
+               05  TRANS-ID-1    PIC S9(1)V9(2) COMP-1.
+               05  TRANS-ID-2    PIC S9(1)V9(2) COMP-2.

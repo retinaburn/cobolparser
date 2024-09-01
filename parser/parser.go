@@ -1,10 +1,13 @@
 package parser
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
+	"math"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/shopspring/decimal"
 )
@@ -12,13 +15,14 @@ import (
 type PicType int
 
 const (
-	SIGNED_BINARY PicType = iota
-	UNSIGNED_BINARY
-	FLOAT
+	SIGNED_BINARY   PicType = iota // PIC S9(p) COMP, PIC S9 COMP
+	UNSIGNED_BINARY                // PIC 9(p) COMP, PIC 9 COMP
+	FLOAT4                         // PIC S9(p)V9(s) COMP-1
+	FLOAT8                         // PIC S9(p)V9(s) COMP-2
 	ALPHA_CHAR
 	ANY_CHAR
-	NUM_CHAR //PIC X(n)
-	DECIMAL  //PIC S9(p)V9(s) COMP-3
+	NUM_CHAR // PIC X(n)
+	DECIMAL  // PIC S9(p)V9(s) COMP-3
 	DISPLAY_NUMERIC
 )
 
@@ -92,6 +96,8 @@ func ParseLexData(lexer *Lexer) []Field {
 	signedBinaryRE := regexp.MustCompile(signedBinaryREString)
 	unsignedBinaryREString := `^PIC 9\((\d+)\) COMP$|^PIC 9 COMP$`
 	unsignedBinaryRE := regexp.MustCompile(unsignedBinaryREString)
+	floatREString := `^PIC S9\((\d+)\)V9\((\d+)\) COMP-[12]$`
+	floatRE := regexp.MustCompile(floatREString)
 
 	var lastIdent string
 	for {
@@ -119,18 +125,18 @@ func ParseLexData(lexer *Lexer) []Field {
 			// Capture Decimal Type "PIC S9(p)V9(s) COMP-3"
 			capGroups = decimalRE.FindStringSubmatch(lit)
 			if len(capGroups) > 0 {
-				foundPLength, err := strconv.Atoi(capGroups[2])
+				foundPLength, err := strconv.Atoi(capGroups[1])
 				if err != nil {
 					panic(err)
 				}
-				foundSLength, err := strconv.Atoi(capGroups[1])
+				foundSLength, err := strconv.Atoi(capGroups[2])
 				if err != nil {
 					panic(err)
 				}
 				fields = append(fields, newFieldForDecimal(lastIdent, int32(foundPLength), int32(foundSLength), DECIMAL))
 			}
 
-			// Capture Numeric Type "PIC S9(p) COMP" or "PIC S9 COMP"
+			// Capture Signed Numeric Type "PIC S9(p) COMP" or "PIC S9 COMP"
 			capGroups = signedBinaryRE.FindStringSubmatch(lit)
 			if len(capGroups) > 0 {
 				log.Printf("%s\n", capGroups)
@@ -146,7 +152,7 @@ func ParseLexData(lexer *Lexer) []Field {
 				fields = append(fields, newFieldForSignedBinary(lastIdent, int32(length), SIGNED_BINARY))
 			}
 
-			// Capture Numeric Type "PIC 9(p) COMP" or "PIC 9 COMP"
+			// Capture Numeric Unsigned Type "PIC 9(p) COMP" or "PIC 9 COMP"
 			capGroups = unsignedBinaryRE.FindStringSubmatch(lit)
 			if len(capGroups) > 0 {
 				log.Printf("%s\n", capGroups)
@@ -161,11 +167,41 @@ func ParseLexData(lexer *Lexer) []Field {
 				}
 				fields = append(fields, newFieldForUnsignedBinary(lastIdent, int32(length), UNSIGNED_BINARY))
 			}
+
+			// Capture Float Type "PIC S9(p)V9(s) COMP-1" or "PIC S9(p)V9(s) COMP-2"
+			capGroups = floatRE.FindStringSubmatch(lit)
+			if len(capGroups) > 0 {
+				log.Printf("%s\n", capGroups)
+				foundPLength, err := strconv.Atoi(capGroups[1])
+				if err != nil {
+					panic(err)
+				}
+				foundSLength, err := strconv.Atoi(capGroups[2])
+				if err != nil {
+					panic(err)
+				}
+				var floatType PicType
+				if strings.Contains(lit, "COMP-1") {
+					floatType = FLOAT4
+				} else {
+					floatType = FLOAT8
+				}
+				fields = append(fields, newFieldForFloat(lastIdent, int32(foundPLength), int32(foundSLength), floatType))
+			}
 		}
 
 		fmt.Printf("%d:%d\t|%s|\t|%s|\n", pos.line, pos.column, tok, lit)
 	}
 	return fields
+}
+
+func newFieldForFloat(label string, s int32, p int32, fieldType PicType) Field {
+	f := Field{}
+	f.label = label
+	f.sLength = s
+	f.pLength = p
+	f.fieldType = fieldType
+	return f
 }
 
 func ParseData(fields []Field, data []int) []Field {
@@ -312,6 +348,33 @@ func ParseData(fields []Field, data []int) []Field {
 			}
 			fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
 			startPos += v.length
+		} else if v.fieldType == FLOAT4 {
+			exponent := data[startPos : startPos+1]
+			startPos += 1
+			mantissa := data[startPos : startPos+3]
+			startPos += 3
+
+			var exponentByte []byte
+			for _, val := range exponent {
+				exponentByte = append(exponentByte, byte(val))
+			}
+
+			var mantissaByte []byte
+			for _, val := range mantissa {
+				mantissaByte = append(mantissaByte, byte(val))
+			}
+
+			log.Printf("Exponent: %d -> %08b, %d -> %08b", exponent, exponent, exponentByte, exponentByte)
+			log.Printf("Mantissa: %d -> %08b, %d -> %08d", mantissa, mantissa, mantissaByte, mantissaByte)
+
+			var dataByte []byte
+			dataByte = append(dataByte, exponentByte[0])
+			dataByte = append(dataByte, mantissaByte...)
+
+			bits := binary.LittleEndian.Uint32(dataByte)
+			floatVal := math.Float32frombits(bits)
+
+			fmt.Printf("%f -> %d -> %08b\n", floatVal, dataByte, bits)
 		}
 	}
 

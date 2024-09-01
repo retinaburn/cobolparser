@@ -11,7 +11,8 @@ func main() {
 	//file, err := os.Open("resources/string2.copybook")
 	//file, err := os.Open("resources/largedecimal.copybook")
 	//file, err := os.Open("resources/unsigned-binary.copybook")
-	file, err := os.Open("resources/unsigned-binary.copybook")
+	//file, err := os.Open("resources/unsigned-binary.copybook")
+	file, err := os.Open("resources/float.copybook")
 	if err != nil {
 		panic(err)
 	}
@@ -31,7 +32,11 @@ func main() {
 	//javaData := []int{1, 1, -64, 64, 10, -1, 127}
 
 	// Data for unsigned binary
-	javaData := []int{1, 1, -64, 64, 10, -1, 127, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
+	// javaData := []int{1, 1, -64, 64, 10, -1, 127, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
+
+	// Data for float
+	//javaData := []int{111, -51, -113, 63}
+	javaData := []int{-6, -40, 27, 95}
 	parser.ParseData(fields, javaData)
 
 }
