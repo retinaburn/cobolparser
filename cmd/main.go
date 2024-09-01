@@ -26,9 +26,8 @@ func main() {
 	//-100.99
 	//javaData := []int{-16, -16, -16, -16, -16, -16, -16, -16, -15, -16, -16, -7, -39}
 
-	// Data for nummeric
+	// Data for signed binary
 	javaData := []int{1, 1, -64, 64, 10, -1, 127}
-
 	parser.ParseData(fields, javaData)
 
 }
