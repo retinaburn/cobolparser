@@ -10,7 +10,7 @@ func main() {
 
 	//file, err := os.Open("resources/string2.copybook")
 	//file, err := os.Open("resources/largedecimal.copybook")
-	file, err := os.Open("resources/composite.copybook")
+	file, err := os.Open("resources/signed-binary.copybook")
 	if err != nil {
 		panic(err)
 	}

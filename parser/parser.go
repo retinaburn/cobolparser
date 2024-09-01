@@ -257,11 +257,11 @@ func ParseData(fields []Field, data []int) []Field {
 			fmt.Printf("%d -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
 		} else if v.fieldType == SIGNED_BINARY {
 			datum := data[startPos : startPos+v.length]
-			var byteSlice []uint8
+			var byteSlice []int8
 			var stringBuffer string = ""
 
 			for _, datumInt := range datum {
-				byteSlice = append(byteSlice, (uint8)(datumInt+256))
+				byteSlice = append(byteSlice, (int8)(datumInt+256))
 				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
 			}
 			fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
