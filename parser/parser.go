@@ -374,7 +374,7 @@ func ParseData(fields []Field, data []int) []Field {
 			bits := binary.LittleEndian.Uint32(dataByte)
 			floatVal := math.Float32frombits(bits)
 
-			fmt.Printf("%f -> %d -> %08b\n", floatVal, dataByte, bits)
+			fmt.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
 		}
 	}
 
