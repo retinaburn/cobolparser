@@ -56,9 +56,26 @@ func newFieldForSignedBinary(label string, length int32, fieldType PicType) Fiel
 	} else if length <= 5 {
 		f.length = 2
 	} else if length <= 10 {
-		f.length = 5
+		f.length = 4
 	} else if length <= 19 {
-		f.length = 10
+		f.length = 8
+	}
+	f.fieldType = fieldType
+	return f
+}
+
+func newFieldForUnsignedBinary(label string, length int32, fieldType PicType) Field {
+	//https://techjogging.com/cobol-data-types.html
+	f := Field{}
+	f.label = label
+	if length <= 3 {
+		f.length = 1
+	} else if length <= 5 {
+		f.length = 2
+	} else if length <= 10 {
+		f.length = 4
+	} else if length <= 20 {
+		f.length = 8
 	}
 	f.fieldType = fieldType
 	return f
@@ -71,8 +88,10 @@ func ParseLexData(lexer *Lexer) []Field {
 	stringRE := regexp.MustCompile(stringREString)
 	decimalREString := `^PIC S9\((\d+)\)V9\((\d+)\) COMP-3$`
 	decimalRE := regexp.MustCompile(decimalREString)
-	numberREString := `^PIC S9\((\d+)\) COMP$|^PIC S9 COMP$`
-	numberRE := regexp.MustCompile(numberREString)
+	signedBinaryREString := `^PIC S9\((\d+)\) COMP$|^PIC S9 COMP$`
+	signedBinaryRE := regexp.MustCompile(signedBinaryREString)
+	unsignedBinaryREString := `^PIC 9\((\d+)\) COMP$|^PIC 9 COMP$`
+	unsignedBinaryRE := regexp.MustCompile(unsignedBinaryREString)
 
 	var lastIdent string
 	for {
@@ -112,7 +131,7 @@ func ParseLexData(lexer *Lexer) []Field {
 			}
 
 			// Capture Numeric Type "PIC S9(p) COMP" or "PIC S9 COMP"
-			capGroups = numberRE.FindStringSubmatch(lit)
+			capGroups = signedBinaryRE.FindStringSubmatch(lit)
 			if len(capGroups) > 0 {
 				log.Printf("%s\n", capGroups)
 				length := 1
@@ -125,6 +144,22 @@ func ParseLexData(lexer *Lexer) []Field {
 
 				}
 				fields = append(fields, newFieldForSignedBinary(lastIdent, int32(length), SIGNED_BINARY))
+			}
+
+			// Capture Numeric Type "PIC 9(p) COMP" or "PIC 9 COMP"
+			capGroups = unsignedBinaryRE.FindStringSubmatch(lit)
+			if len(capGroups) > 0 {
+				log.Printf("%s\n", capGroups)
+				length := 1
+				if len(capGroups) == 2 && capGroups[1] != "" {
+					var err error
+					length, err = strconv.Atoi(capGroups[1])
+					if err != nil {
+						panic(err)
+					}
+
+				}
+				fields = append(fields, newFieldForUnsignedBinary(lastIdent, int32(length), UNSIGNED_BINARY))
 			}
 		}
 
@@ -262,6 +297,17 @@ func ParseData(fields []Field, data []int) []Field {
 
 			for _, datumInt := range datum {
 				byteSlice = append(byteSlice, (int8)(datumInt+256))
+				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+			}
+			fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
+			startPos += v.length
+		} else if v.fieldType == UNSIGNED_BINARY {
+			datum := data[startPos : startPos+v.length]
+			var byteSlice []uint8
+			var stringBuffer string = ""
+
+			for _, datumInt := range datum {
+				byteSlice = append(byteSlice, (uint8)(datumInt+256))
 				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
 			}
 			fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)

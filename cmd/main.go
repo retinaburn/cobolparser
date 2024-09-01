@@ -10,7 +10,8 @@ func main() {
 
 	//file, err := os.Open("resources/string2.copybook")
 	//file, err := os.Open("resources/largedecimal.copybook")
-	file, err := os.Open("resources/signed-binary.copybook")
+	//file, err := os.Open("resources/unsigned-binary.copybook")
+	file, err := os.Open("resources/unsigned-binary.copybook")
 	if err != nil {
 		panic(err)
 	}
@@ -27,7 +28,10 @@ func main() {
 	//javaData := []int{-16, -16, -16, -16, -16, -16, -16, -16, -15, -16, -16, -7, -39}
 
 	// Data for signed binary
-	javaData := []int{1, 1, -64, 64, 10, -1, 127}
+	//javaData := []int{1, 1, -64, 64, 10, -1, 127}
+
+	// Data for unsigned binary
+	javaData := []int{1, 1, -64, 64, 10, -1, 127, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
 	parser.ParseData(fields, javaData)
 
 }

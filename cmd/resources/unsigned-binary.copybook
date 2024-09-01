@@ -6,3 +6,4 @@
                05  TRANS-ID-4    PIC 9(1) COMP.
                05  TRANS-ID-5    PIC 9(3) COMP.
                05  TRANS-ID-5    PIC 9(5) COMP.
+               05  TRANS-ID-6    PIC 9(20) COMP.
