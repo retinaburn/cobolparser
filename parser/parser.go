@@ -47,6 +47,23 @@ func newFieldForDecimal(label string, s int32, p int32, fieldType PicType) Field
 	return f
 }
 
+func newFieldForSignedBinary(label string, length int32, fieldType PicType) Field {
+	//https://techjogging.com/cobol-data-types.html
+	f := Field{}
+	f.label = label
+	if length <= 3 {
+		f.length = 1
+	} else if length <= 5 {
+		f.length = 2
+	} else if length <= 10 {
+		f.length = 5
+	} else if length <= 19 {
+		f.length = 10
+	}
+	f.fieldType = fieldType
+	return f
+}
+
 func ParseLexData(lexer *Lexer) []Field {
 	var fields []Field
 
@@ -54,6 +71,8 @@ func ParseLexData(lexer *Lexer) []Field {
 	stringRE := regexp.MustCompile(stringREString)
 	decimalREString := `^PIC S9\((\d+)\)V9\((\d+)\) COMP-3$`
 	decimalRE := regexp.MustCompile(decimalREString)
+	numberREString := `^PIC S9\((\d+)\) COMP$|^PIC S9 COMP$`
+	numberRE := regexp.MustCompile(numberREString)
 
 	var lastIdent string
 	for {
@@ -66,28 +85,47 @@ func ParseLexData(lexer *Lexer) []Field {
 			lastIdent = lit
 		}
 
-		// Capture String Type: "PIC X(n)"
-		capGroups := stringRE.FindStringSubmatch(lit)
-		if len(capGroups) > 0 {
-			foundLength, err := strconv.Atoi(capGroups[1])
-			if err != nil {
-				panic(err)
-			}
-			fields = append(fields, newFieldForString(lastIdent, int32(foundLength), ANY_CHAR))
-		}
+		if tok == PIC {
 
-		// Capture Decimal Type "PIC S9(p)V9(s) COMP-3"
-		capGroups = decimalRE.FindStringSubmatch(lit)
-		if len(capGroups) > 0 {
-			foundPLength, err := strconv.Atoi(capGroups[2])
-			if err != nil {
-				panic(err)
+			// Capture String Type: "PIC X(n)"
+			capGroups := stringRE.FindStringSubmatch(lit)
+			if len(capGroups) > 0 {
+				foundLength, err := strconv.Atoi(capGroups[1])
+				if err != nil {
+					panic(err)
+				}
+				fields = append(fields, newFieldForString(lastIdent, int32(foundLength), ANY_CHAR))
 			}
-			foundSLength, err := strconv.Atoi(capGroups[1])
-			if err != nil {
-				panic(err)
+
+			// Capture Decimal Type "PIC S9(p)V9(s) COMP-3"
+			capGroups = decimalRE.FindStringSubmatch(lit)
+			if len(capGroups) > 0 {
+				foundPLength, err := strconv.Atoi(capGroups[2])
+				if err != nil {
+					panic(err)
+				}
+				foundSLength, err := strconv.Atoi(capGroups[1])
+				if err != nil {
+					panic(err)
+				}
+				fields = append(fields, newFieldForDecimal(lastIdent, int32(foundPLength), int32(foundSLength), DECIMAL))
 			}
-			fields = append(fields, newFieldForDecimal(lastIdent, int32(foundPLength), int32(foundSLength), DECIMAL))
+
+			// Capture Numeric Type "PIC S9(p) COMP" or "PIC S9 COMP"
+			capGroups = numberRE.FindStringSubmatch(lit)
+			if len(capGroups) > 0 {
+				log.Printf("%s\n", capGroups)
+				length := 1
+				if len(capGroups) == 2 && capGroups[1] != "" {
+					var err error
+					length, err = strconv.Atoi(capGroups[1])
+					if err != nil {
+						panic(err)
+					}
+
+				}
+				fields = append(fields, newFieldForSignedBinary(lastIdent, int32(length), SIGNED_BINARY))
+			}
 		}
 
 		fmt.Printf("%d:%d\t|%s|\t|%s|\n", pos.line, pos.column, tok, lit)
@@ -217,6 +255,17 @@ func ParseData(fields []Field, data []int) []Field {
 				log.Printf("%d: %d -> %d -> %s -> %v\n", j, datum, byteSlice, stringBuffer, stringAsDecimal)
 			}
 			fmt.Printf("%d -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
+		} else if v.fieldType == SIGNED_BINARY {
+			datum := data[startPos : startPos+v.length]
+			var byteSlice []uint8
+			var stringBuffer string = ""
+
+			for _, datumInt := range datum {
+				byteSlice = append(byteSlice, (uint8)(datumInt+256))
+				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+			}
+			fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
+			startPos += v.length
 		}
 	}
 

@@ -9,7 +9,8 @@ import (
 func main() {
 
 	//file, err := os.Open("resources/string2.copybook")
-	file, err := os.Open("resources/largedecimal.copybook")
+	//file, err := os.Open("resources/largedecimal.copybook")
+	file, err := os.Open("resources/composite.copybook")
 	if err != nil {
 		panic(err)
 	}
@@ -18,10 +19,16 @@ func main() {
 	fields := parser.ParseLexData(lexer)
 	// Data for string2
 	//javaData := []int{-63, -62, -128, -127, -126, -125, -124, -123, -122, -121, -120, -119}
+
+	// Data for largedecimal
 	//100.99
 	//javaData := []int{-16, -16, -16, -16, -16, -16, -16, -16, -15, -16, -16, -7, -55}
 	//-100.99
-	javaData := []int{-16, -16, -16, -16, -16, -16, -16, -16, -15, -16, -16, -7, -39}
+	//javaData := []int{-16, -16, -16, -16, -16, -16, -16, -16, -15, -16, -16, -7, -39}
+
+	// Data for nummeric
+	javaData := []int{1, 1, -64, 64, 10, -1, 127}
+
 	parser.ParseData(fields, javaData)
 
 }
