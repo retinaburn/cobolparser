@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/retinaburn/cobolparser/parser"
@@ -20,7 +21,7 @@ func main() {
 	}
 
 	lexer := parser.NewLexer(file)
-	fields := parser.ParseLexData(lexer)
+	fileStruct := parser.ParseLexData(lexer)
 	// Data for string2
 	//javaData := []int{-63, -62, -128, -127, -126, -125, -124, -123, -122, -121, -120, -119}
 
@@ -41,7 +42,12 @@ func main() {
 	//javaData := []int{-6, -40, 27, 95}
 
 	// Data for Alpha
-	javaData := []int{-15, -14, -13, -12, -11, -10}
-	parser.ParseData(fields, javaData)
+	fmt.Printf("Record length: %d\n", fileStruct.RecordLength)
+	javaData := []int{-15, -14, -13, -12, -11, -10, -9, -8, -7, -15, -14, -13}
+	parser.ParseData(&fileStruct, javaData)
+	fmt.Printf("Current read data: %d\n", fileStruct.StartPos)
+
+	parser.ParseData(&fileStruct, javaData)
+	fmt.Printf("Current read data: %d\n", fileStruct.StartPos)
 
 }

@@ -34,6 +34,18 @@ type Field struct {
 	fieldType PicType
 }
 
+type File struct {
+	RecordLength int32
+	Fields       []Field
+	StartPos     int32
+}
+
+func (f *File) addField(field Field) {
+	f.Fields = append(f.Fields, field)
+	f.RecordLength += field.length + field.pLength + field.sLength
+	f.StartPos = 0
+}
+
 func newFieldForString(label string, length int32, fieldType PicType) Field {
 	f := Field{}
 	f.label = label
@@ -85,8 +97,8 @@ func newFieldForUnsignedBinary(label string, length int32, fieldType PicType) Fi
 	return f
 }
 
-func ParseLexData(lexer *Lexer) []Field {
-	var fields []Field
+func ParseLexData(lexer *Lexer) File {
+	var file File
 
 	stringREString := `^PIC X\((\d+)\)$`
 	stringRE := regexp.MustCompile(stringREString)
@@ -123,7 +135,7 @@ func ParseLexData(lexer *Lexer) []Field {
 				if err != nil {
 					panic(err)
 				}
-				fields = append(fields, newFieldForString(lastIdent, int32(foundLength), ANY_CHAR))
+				file.addField(newFieldForString(lastIdent, int32(foundLength), ANY_CHAR))
 			}
 
 			// Capture Decimal Type "PIC S9(p)V9(s) COMP-3"
@@ -137,7 +149,7 @@ func ParseLexData(lexer *Lexer) []Field {
 				if err != nil {
 					panic(err)
 				}
-				fields = append(fields, newFieldForDecimal(lastIdent, int32(foundPLength), int32(foundSLength), DECIMAL))
+				file.addField(newFieldForDecimal(lastIdent, int32(foundPLength), int32(foundSLength), DECIMAL))
 			}
 
 			// Capture Signed Numeric Type "PIC S9(p) COMP" or "PIC S9 COMP"
@@ -153,7 +165,7 @@ func ParseLexData(lexer *Lexer) []Field {
 					}
 
 				}
-				fields = append(fields, newFieldForSignedBinary(lastIdent, int32(length), SIGNED_BINARY))
+				file.addField(newFieldForSignedBinary(lastIdent, int32(length), SIGNED_BINARY))
 			}
 
 			// Capture Numeric Unsigned Type "PIC 9(p) COMP" or "PIC 9 COMP"
@@ -169,7 +181,7 @@ func ParseLexData(lexer *Lexer) []Field {
 					}
 
 				}
-				fields = append(fields, newFieldForUnsignedBinary(lastIdent, int32(length), UNSIGNED_BINARY))
+				file.addField(newFieldForUnsignedBinary(lastIdent, int32(length), UNSIGNED_BINARY))
 			}
 
 			// Capture Float Type "PIC S9(p)V9(s) COMP-1" or "PIC S9(p)V9(s) COMP-2"
@@ -190,7 +202,7 @@ func ParseLexData(lexer *Lexer) []Field {
 				} else {
 					floatType = FLOAT8
 				}
-				fields = append(fields, newFieldForFloat(lastIdent, int32(foundPLength), int32(foundSLength), floatType))
+				file.addField(newFieldForFloat(lastIdent, int32(foundPLength), int32(foundSLength), floatType))
 			}
 
 			// Capture Alpha Type "PIC A(n)"
@@ -201,7 +213,7 @@ func ParseLexData(lexer *Lexer) []Field {
 				if err != nil {
 					panic(err)
 				}
-				fields = append(fields, newFieldForString(lastIdent, int32(length), ALPHA_CHAR))
+				file.addField(newFieldForString(lastIdent, int32(length), ALPHA_CHAR))
 			}
 
 			// Capture Num Type "PIC 9(n)"
@@ -212,13 +224,13 @@ func ParseLexData(lexer *Lexer) []Field {
 				if err != nil {
 					panic(err)
 				}
-				fields = append(fields, newFieldForString(lastIdent, int32(length), NUM_CHAR))
+				file.addField(newFieldForString(lastIdent, int32(length), NUM_CHAR))
 			}
 		}
 
 		fmt.Printf("%d:%d\t|%s|\t|%s|\n", pos.line, pos.column, tok, lit)
 	}
-	return fields
+	return file
 }
 
 func newFieldForFloat(label string, s int32, p int32, fieldType PicType) Field {
@@ -230,7 +242,7 @@ func newFieldForFloat(label string, s int32, p int32, fieldType PicType) Field {
 	return f
 }
 
-func ParseData(fields []Field, data []int) []Field {
+func ParseData(fileStruct *File, data []int) {
 	m := map[uint8]string{
 		0: "", 1: "", 2: "", 3: "", 4: "",
 		5: "", 6: "", 7: "", 8: "", 9: "",
@@ -286,8 +298,8 @@ func ParseData(fields []Field, data []int) []Field {
 		255: "",
 	}
 
-	startPos := int32(0)
-	for i, v := range fields {
+	startPos := fileStruct.StartPos
+	for i, v := range fileStruct.Fields {
 		log.Printf("i=%d, label=%s, length=%d:\n", i, v.label, v.length)
 		if v.fieldType == ANY_CHAR {
 			datum := data[startPos : startPos+v.length]
@@ -424,7 +436,7 @@ func ParseData(fields []Field, data []int) []Field {
 			fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
 			startPos += v.length
 		}
-	}
 
-	return fields
+	}
+	fileStruct.StartPos = fileStruct.StartPos + fileStruct.RecordLength
 }
