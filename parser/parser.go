@@ -20,9 +20,9 @@ const (
 	FLOAT4                         // PIC S9(p)V9(s) COMP-1
 	FLOAT8                         // PIC S9(p)V9(s) COMP-2
 	ALPHA_CHAR                     // PIC A(n)
-	ANY_CHAR
-	NUM_CHAR // PIC X(n)
-	DECIMAL  // PIC S9(p)V9(s) COMP-3
+	ANY_CHAR                       // PIC X(n)
+	NUM_CHAR                       // PIC 9(n)
+	DECIMAL                        // PIC S9(p)V9(s) COMP-3
 	DISPLAY_NUMERIC
 )
 
@@ -100,6 +100,8 @@ func ParseLexData(lexer *Lexer) []Field {
 	floatRE := regexp.MustCompile(floatREString)
 	alphaREString := `^PIC A\((\d+)\)`
 	alphaRE := regexp.MustCompile(alphaREString)
+	numREString := `^PIC 9\((\d+)\)`
+	numRE := regexp.MustCompile(numREString)
 
 	var lastIdent string
 	for {
@@ -200,6 +202,17 @@ func ParseLexData(lexer *Lexer) []Field {
 					panic(err)
 				}
 				fields = append(fields, newFieldForString(lastIdent, int32(length), ALPHA_CHAR))
+			}
+
+			// Capture Num Type "PIC 9(n)"
+			capGroups = numRE.FindStringSubmatch(lit)
+			if len(capGroups) > 0 {
+				log.Printf("%s\n", capGroups)
+				length, err := strconv.Atoi(capGroups[1])
+				if err != nil {
+					panic(err)
+				}
+				fields = append(fields, newFieldForString(lastIdent, int32(length), NUM_CHAR))
 			}
 		}
 
@@ -389,6 +402,17 @@ func ParseData(fields []Field, data []int) []Field {
 
 			fmt.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
 		} else if v.fieldType == ALPHA_CHAR {
+			datum := data[startPos : startPos+v.length]
+			var byteSlice []uint8
+			var stringBuffer string = ""
+
+			for _, datumInt := range datum {
+				byteSlice = append(byteSlice, (uint8)(datumInt+256))
+				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+			}
+			fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
+			startPos += v.length
+		} else if v.fieldType == NUM_CHAR {
 			datum := data[startPos : startPos+v.length]
 			var byteSlice []uint8
 			var stringBuffer string = ""

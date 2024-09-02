@@ -13,7 +13,8 @@ func main() {
 	//file, err := os.Open("resources/unsigned-binary.copybook")
 	//file, err := os.Open("resources/unsigned-binary.copybook")
 	//file, err := os.Open("resources/float.copybook")
-	file, err := os.Open("resources/alpha.copybook")
+	//file, err := os.Open("resources/alpha.copybook")
+	file, err := os.Open("resources/number.copybook")
 	if err != nil {
 		panic(err)
 	}
@@ -40,7 +41,7 @@ func main() {
 	//javaData := []int{-6, -40, 27, 95}
 
 	// Data for Alpha
-	javaData := []int{-63, -62, -61, -60, -59, -58}
+	javaData := []int{-15, -14, -13, -12, -11, -10}
 	parser.ParseData(fields, javaData)
 
 }
