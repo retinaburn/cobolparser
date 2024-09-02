@@ -12,7 +12,8 @@ func main() {
 	//file, err := os.Open("resources/largedecimal.copybook")
 	//file, err := os.Open("resources/unsigned-binary.copybook")
 	//file, err := os.Open("resources/unsigned-binary.copybook")
-	file, err := os.Open("resources/float.copybook")
+	//file, err := os.Open("resources/float.copybook")
+	file, err := os.Open("resources/alpha.copybook")
 	if err != nil {
 		panic(err)
 	}
@@ -36,7 +37,10 @@ func main() {
 
 	// Data for float
 	//javaData := []int{111, -51, -113, 63}
-	javaData := []int{-6, -40, 27, 95}
+	//javaData := []int{-6, -40, 27, 95}
+
+	// Data for Alpha
+	javaData := []int{-63, -62, -61, -60, -59, -58}
 	parser.ParseData(fields, javaData)
 
 }
