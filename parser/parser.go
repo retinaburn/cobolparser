@@ -97,6 +97,15 @@ func newFieldForUnsignedBinary(label string, length int32, fieldType PicType) Fi
 	return f
 }
 
+func newFieldForFloat(label string, s int32, p int32, fieldType PicType) Field {
+	f := Field{}
+	f.label = label
+	f.sLength = s
+	f.pLength = p
+	f.fieldType = fieldType
+	return f
+}
+
 func ParseLexData(lexer *Lexer) File {
 	var file File
 
@@ -231,15 +240,6 @@ func ParseLexData(lexer *Lexer) File {
 		fmt.Printf("%d:%d\t|%s|\t|%s|\n", pos.line, pos.column, tok, lit)
 	}
 	return file
-}
-
-func newFieldForFloat(label string, s int32, p int32, fieldType PicType) Field {
-	f := Field{}
-	f.label = label
-	f.sLength = s
-	f.pLength = p
-	f.fieldType = fieldType
-	return f
 }
 
 func ParseData(fileStruct *File, data []int) {

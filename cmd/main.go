@@ -44,9 +44,12 @@ func main() {
 	// Data for Alpha
 	fmt.Printf("Record length: %d\n", fileStruct.RecordLength)
 	javaData := []int{-15, -14, -13, -12, -11, -10, -9, -8, -7, -15, -14, -13}
+
+	// Parse first record
 	parser.ParseData(&fileStruct, javaData)
 	fmt.Printf("Current read data: %d\n", fileStruct.StartPos)
 
+	// Parse next record
 	parser.ParseData(&fileStruct, javaData)
 	fmt.Printf("Current read data: %d\n", fileStruct.StartPos)
 
