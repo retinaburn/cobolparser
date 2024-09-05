@@ -48,6 +48,13 @@ func main() {
 	// Parse first record
 	parser.ParseData(&fileStruct, javaData)
 	fmt.Printf("Current read data: %d\n", fileStruct.StartPos)
+	fmt.Printf("Fields: %s\n", fileStruct.FieldNames())
+	field, err := fileStruct.Field("TRANS-ID")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Data by field pull: %s\n", field.Data)
+	fmt.Printf("Data by field index: %s\n", (fileStruct.Fields[0]).Data)
 
 	// Parse next record
 	parser.ParseData(&fileStruct, javaData)

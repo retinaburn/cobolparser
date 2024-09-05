@@ -2,6 +2,7 @@ package parser
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -32,12 +33,34 @@ type Field struct {
 	sLength   int32
 	pLength   int32
 	fieldType PicType
+	startPos  int32
+	Data      any
 }
 
 type File struct {
 	RecordLength int32
 	Fields       []Field
 	StartPos     int32
+}
+
+func (f *File) Field(fieldName string) (*Field, error) {
+	for i, field := range f.Fields {
+		log.Printf("Found field %s: %d, %s, %d, %s", fieldName, i, field.label, field.startPos, field.Data)
+		if field.label == fieldName {
+			return &f.Fields[i], nil
+		}
+	}
+
+	return nil, errors.New("no matching field label")
+}
+
+func (f *File) FieldNames() []string {
+	var names []string
+	for i, field := range f.Fields {
+		log.Printf("Field Name: %d, %s, %d", i, field.label, field.startPos)
+		names = append(names, field.label)
+	}
+	return names
 }
 
 func (f *File) addField(field Field) {
@@ -242,7 +265,7 @@ func ParseLexData(lexer *Lexer) File {
 	return file
 }
 
-func ParseData(fileStruct *File, data []int) {
+func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
 	m := map[uint8]string{
 		0: "", 1: "", 2: "", 3: "", 4: "",
 		5: "", 6: "", 7: "", 8: "", 9: "",
@@ -298,145 +321,157 @@ func ParseData(fileStruct *File, data []int) {
 		255: "",
 	}
 
-	startPos := fileStruct.StartPos
-	for i, v := range fileStruct.Fields {
-		log.Printf("i=%d, label=%s, length=%d:\n", i, v.label, v.length)
-		if v.fieldType == ANY_CHAR {
-			datum := data[startPos : startPos+v.length]
-			var byteSlice []uint8
-			var stringBuffer string = ""
+	if field.fieldType == ANY_CHAR {
+		datum := data[startPos : startPos+field.length]
+		var byteSlice []uint8
+		var stringBuffer string = ""
 
-			for _, datumInt := range datum {
-				byteSlice = append(byteSlice, (uint8)(datumInt+256))
-				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
-			}
-			fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
-			startPos += v.length
-		} else if v.fieldType == DECIMAL {
-			var byteSlice []uint8
-			var stringBuffer string = ""
-			// parse the left side of the decimal
-			for j, datum := range data[startPos : startPos+v.pLength] {
-				byteSlice = append(byteSlice, (uint8)(datum+256))
-				stringBuffer = stringBuffer + m[(uint8)(datum+256)]
-				log.Printf("%d: %d -> %d -> %s\n", j, datum, byteSlice, stringBuffer)
-			}
-			startPos += v.pLength
-			stringBuffer = stringBuffer + "."
-			sIntCount := int32(0)
-			var stringAsDecimal decimal.Decimal
-			// parse the right side of the decimal
-			for j, datum := range data[startPos : startPos+v.sLength] {
-				sIntCount++
-				datumConverted := (uint8)(datum + 256)
-				byteSlice = append(byteSlice, datumConverted)
-				log.Printf("%08b\n", datumConverted)
-				// if not the last element, just append
-				if sIntCount != v.sLength {
-					stringBuffer = stringBuffer + m[datumConverted]
-				} else {
-					// this is the last byte, so we need to parse it special like
-					// the bottom 4 bits are the number we want
-					// so bitwise & to get just the low bits
-					lowBits := datumConverted & (8 + 4 + 2 + 1)
-					// make the high bits 240, to shift it up the code sheet
-					lowBits = lowBits | (128 + 64 + 32 + 16)
-					log.Printf("Low: %08b\n", lowBits)
-					//append the new low byte to the string
-					stringBuffer = stringBuffer + m[lowBits]
+		for _, datumInt := range datum {
+			byteSlice = append(byteSlice, (uint8)(datumInt+256))
+			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		}
+		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
+		startPos += field.length
+		field.Data = stringBuffer
+	} else if field.fieldType == DECIMAL {
+		var byteSlice []uint8
+		var stringBuffer string = ""
+		// parse the left side of the decimal
+		for j, datum := range data[startPos : startPos+field.pLength] {
+			byteSlice = append(byteSlice, (uint8)(datum+256))
+			stringBuffer = stringBuffer + m[(uint8)(datum+256)]
+			log.Printf("%d: %d -> %d -> %s\n", j, datum, byteSlice, stringBuffer)
+		}
+		startPos += field.pLength
+		stringBuffer = stringBuffer + "."
+		sIntCount := int32(0)
+		var stringAsDecimal decimal.Decimal
+		// parse the right side of the decimal
+		for j, datum := range data[startPos : startPos+field.sLength] {
+			sIntCount++
+			datumConverted := (uint8)(datum + 256)
+			byteSlice = append(byteSlice, datumConverted)
+			log.Printf("%08b\n", datumConverted)
+			// if not the last element, just append
+			if sIntCount != field.sLength {
+				stringBuffer = stringBuffer + m[datumConverted]
+			} else {
+				// this is the last byte, so we need to parse it special like
+				// the bottom 4 bits are the number we want
+				// so bitwise & to get just the low bits
+				lowBits := datumConverted & (8 + 4 + 2 + 1)
+				// make the high bits 240, to shift it up the code sheet
+				lowBits = lowBits | (128 + 64 + 32 + 16)
+				log.Printf("Low: %08b\n", lowBits)
+				//append the new low byte to the string
+				stringBuffer = stringBuffer + m[lowBits]
 
-					// to get the sign (there is definitely and easier way with java bytes...)
-					// shift 4 bits to the right, to get rid of the low bits
-					highBits := datumConverted >> 4
-					log.Printf("High: %08b : %d\n", highBits, highBits)
-					signInt := int8(highBits)
-					log.Printf("Sign: %d\n", signInt)
-					//if the highBits (shifted) == 13 its a negative sign
-					if signInt == 13 {
-						stringBuffer = "-" + stringBuffer
-					}
+				// to get the sign (there is definitely and easier way with java bytes...)
+				// shift 4 bits to the right, to get rid of the low bits
+				highBits := datumConverted >> 4
+				log.Printf("High: %08b : %d\n", highBits, highBits)
+				signInt := int8(highBits)
+				log.Printf("Sign: %d\n", signInt)
+				//if the highBits (shifted) == 13 its a negative sign
+				if signInt == 13 {
+					stringBuffer = "-" + stringBuffer
 				}
-				var err error
-				stringAsDecimal, err = decimal.NewFromString(stringBuffer)
-				if err != nil {
-					panic(err)
-				}
-				log.Printf("%d: %d -> %d -> %s -> %v\n", j, datum, byteSlice, stringBuffer, stringAsDecimal)
 			}
-			fmt.Printf("%d -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
-		} else if v.fieldType == SIGNED_BINARY {
-			datum := data[startPos : startPos+v.length]
-			var byteSlice []int8
-			var stringBuffer string = ""
-
-			for _, datumInt := range datum {
-				byteSlice = append(byteSlice, (int8)(datumInt+256))
-				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+			var err error
+			stringAsDecimal, err = decimal.NewFromString(stringBuffer)
+			if err != nil {
+				panic(err)
 			}
-			fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
-			startPos += v.length
-		} else if v.fieldType == UNSIGNED_BINARY {
-			datum := data[startPos : startPos+v.length]
-			var byteSlice []uint8
-			var stringBuffer string = ""
+			log.Printf("%d: %d -> %d -> %s -> %v\n", j, datum, byteSlice, stringBuffer, stringAsDecimal)
+		}
+		fmt.Printf("%d -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
+		field.Data = stringAsDecimal
+	} else if field.fieldType == SIGNED_BINARY {
+		datum := data[startPos : startPos+field.length]
+		var byteSlice []int8
+		var stringBuffer string = ""
 
-			for _, datumInt := range datum {
-				byteSlice = append(byteSlice, (uint8)(datumInt+256))
-				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
-			}
-			fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
-			startPos += v.length
-		} else if v.fieldType == FLOAT4 {
-			exponent := data[startPos : startPos+1]
-			startPos += 1
-			mantissa := data[startPos : startPos+3]
-			startPos += 3
+		for _, datumInt := range datum {
+			byteSlice = append(byteSlice, (int8)(datumInt+256))
+			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		}
+		fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
+		startPos += field.length
+	} else if field.fieldType == UNSIGNED_BINARY {
+		datum := data[startPos : startPos+field.length]
+		var byteSlice []uint8
+		var stringBuffer string = ""
 
-			var exponentByte []byte
-			for _, val := range exponent {
-				exponentByte = append(exponentByte, byte(val))
-			}
+		for _, datumInt := range datum {
+			byteSlice = append(byteSlice, (uint8)(datumInt+256))
+			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		}
+		fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
+		startPos += field.length
+	} else if field.fieldType == FLOAT4 {
+		exponent := data[startPos : startPos+1]
+		startPos += 1
+		mantissa := data[startPos : startPos+3]
+		startPos += 3
 
-			var mantissaByte []byte
-			for _, val := range mantissa {
-				mantissaByte = append(mantissaByte, byte(val))
-			}
-
-			log.Printf("Exponent: %d -> %08b, %d -> %08b", exponent, exponent, exponentByte, exponentByte)
-			log.Printf("Mantissa: %d -> %08b, %d -> %08d", mantissa, mantissa, mantissaByte, mantissaByte)
-
-			var dataByte []byte
-			dataByte = append(dataByte, exponentByte[0])
-			dataByte = append(dataByte, mantissaByte...)
-
-			bits := binary.LittleEndian.Uint32(dataByte)
-			floatVal := math.Float32frombits(bits)
-
-			fmt.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
-		} else if v.fieldType == ALPHA_CHAR {
-			datum := data[startPos : startPos+v.length]
-			var byteSlice []uint8
-			var stringBuffer string = ""
-
-			for _, datumInt := range datum {
-				byteSlice = append(byteSlice, (uint8)(datumInt+256))
-				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
-			}
-			fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
-			startPos += v.length
-		} else if v.fieldType == NUM_CHAR {
-			datum := data[startPos : startPos+v.length]
-			var byteSlice []uint8
-			var stringBuffer string = ""
-
-			for _, datumInt := range datum {
-				byteSlice = append(byteSlice, (uint8)(datumInt+256))
-				stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
-			}
-			fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
-			startPos += v.length
+		var exponentByte []byte
+		for _, val := range exponent {
+			exponentByte = append(exponentByte, byte(val))
 		}
 
+		var mantissaByte []byte
+		for _, val := range mantissa {
+			mantissaByte = append(mantissaByte, byte(val))
+		}
+
+		log.Printf("Exponent: %d -> %08b, %d -> %08b", exponent, exponent, exponentByte, exponentByte)
+		log.Printf("Mantissa: %d -> %08b, %d -> %08d", mantissa, mantissa, mantissaByte, mantissaByte)
+
+		var dataByte []byte
+		dataByte = append(dataByte, exponentByte[0])
+		dataByte = append(dataByte, mantissaByte...)
+
+		bits := binary.LittleEndian.Uint32(dataByte)
+		floatVal := math.Float32frombits(bits)
+
+		fmt.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
+	} else if field.fieldType == ALPHA_CHAR {
+		datum := data[startPos : startPos+field.length]
+		var byteSlice []uint8
+		var stringBuffer string = ""
+
+		for _, datumInt := range datum {
+			byteSlice = append(byteSlice, (uint8)(datumInt+256))
+			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		}
+		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
+		startPos += field.length
+	} else if field.fieldType == NUM_CHAR {
+		datum := data[startPos : startPos+field.length]
+		var byteSlice []uint8
+		var stringBuffer string = ""
+
+		for _, datumInt := range datum {
+			byteSlice = append(byteSlice, (uint8)(datumInt+256))
+			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		}
+		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
+		startPos += field.length
+		field.Data = stringBuffer
+	}
+	return startPos, field.Data
+
+}
+
+func ParseData(fileStruct *File, data []int) {
+
+	startPos := fileStruct.StartPos
+	var dataResult any
+	for i, v := range fileStruct.Fields {
+		startPos, dataResult = parseFieldData(&v, data, startPos)
+		fileStruct.Fields[i].startPos = startPos
+		fileStruct.Fields[i].Data = dataResult
+		log.Printf("i=%d, label=%s, length=%d, startPos=%d\n", i, v.label, v.length, v.startPos)
 	}
 	fileStruct.StartPos = fileStruct.StartPos + fileStruct.RecordLength
 }
