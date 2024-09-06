@@ -77,7 +77,7 @@ func newFieldForString(label string, length int32, fieldType PicType) Field {
 	return f
 }
 
-func newFieldForDecimal(label string, s int32, p int32, fieldType PicType) Field {
+func newFieldForDecimal(label string, p int32, s int32, fieldType PicType) Field {
 	f := Field{}
 	f.label = label
 	f.sLength = s
@@ -172,6 +172,7 @@ func ParseLexData(lexer *Lexer) File {
 
 			// Capture Decimal Type "PIC S9(p)V9(s) COMP-3"
 			capGroups = decimalRE.FindStringSubmatch(lit)
+			log.Printf("Cap Group: %s", capGroups)
 			if len(capGroups) > 0 {
 				foundPLength, err := strconv.Atoi(capGroups[1])
 				if err != nil {
@@ -181,6 +182,8 @@ func ParseLexData(lexer *Lexer) File {
 				if err != nil {
 					panic(err)
 				}
+				log.Printf("p:%d, s:%d\n", foundPLength, foundSLength)
+
 				file.addField(newFieldForDecimal(lastIdent, int32(foundPLength), int32(foundSLength), DECIMAL))
 			}
 
@@ -265,7 +268,7 @@ func ParseLexData(lexer *Lexer) File {
 	return file
 }
 
-func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
+func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 	m := map[uint8]string{
 		0: "", 1: "", 2: "", 3: "", 4: "",
 		5: "", 6: "", 7: "", 8: "", 9: "",
@@ -326,9 +329,9 @@ func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
-		for _, datumInt := range datum {
-			byteSlice = append(byteSlice, (uint8)(datumInt+256))
-			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		for _, datumByte := range datum {
+			byteSlice = append(byteSlice, datumByte)
+			stringBuffer = stringBuffer + m[datumByte]
 		}
 		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
 		startPos += field.length
@@ -337,43 +340,70 @@ func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
 		var byteSlice []uint8
 		var stringBuffer string = ""
 		// parse the left side of the decimal
-		for j, datum := range data[startPos : startPos+field.pLength] {
-			byteSlice = append(byteSlice, (uint8)(datum+256))
-			stringBuffer = stringBuffer + m[(uint8)(datum+256)]
-			log.Printf("%d: %d -> %d -> %s\n", j, datum, byteSlice, stringBuffer)
+		// if the pLength is even, we have 2 4 bits per byte, we need half the bytes
+		// if the pLength is odd, we round down, and set the extra 4 bit flag
+		var endPos int32 = 0
+		extra4BitFlag := false
+		if field.pLength%2 == 0 {
+			endPos = field.pLength / 2
+		} else {
+			endPos = (field.pLength - 1) / 2
+			extra4BitFlag = true
 		}
-		startPos += field.pLength
+		for j, datumByte := range data[startPos : startPos+endPos] {
+			byteSlice = append(byteSlice, datumByte)
+			high4Bits := datumByte >> 4
+			stringBuffer = stringBuffer + strconv.Itoa(int(high4Bits))
+			low4Bits := datumByte & (8 + 4 + 2 + 1)
+			stringBuffer = stringBuffer + strconv.Itoa(int(low4Bits))
+			log.Printf("High: %08b, Low: %08b", high4Bits, low4Bits)
+			log.Printf("%d: %d -> %d -> %s\n", j, datumByte, byteSlice, stringBuffer)
+		}
+		startPos = startPos + endPos
+		if extra4BitFlag {
+			log.Printf("We need the first 4 bits only of: %08b", data[startPos])
+			byteSlice = append(byteSlice, data[startPos])
+			high4Bits := data[startPos] >> 4
+			stringBuffer = stringBuffer + strconv.Itoa(int(high4Bits))
+			log.Printf("?: %d -> %d -> %s\n", data[startPos], byteSlice, stringBuffer)
+		}
+
 		stringBuffer = stringBuffer + "."
 		sIntCount := int32(0)
 		var stringAsDecimal decimal.Decimal
 		// parse the right side of the decimal
 		for j, datum := range data[startPos : startPos+field.sLength] {
 			sIntCount++
-			datumConverted := (uint8)(datum + 256)
+			datumConverted := datum
 			byteSlice = append(byteSlice, datumConverted)
-			log.Printf("%08b\n", datumConverted)
-			// if not the last element, just append
-			if sIntCount != field.sLength {
-				stringBuffer = stringBuffer + m[datumConverted]
-			} else {
-				// this is the last byte, so we need to parse it special like
-				// the bottom 4 bits are the number we want
-				// so bitwise & to get just the low bits
-				lowBits := datumConverted & (8 + 4 + 2 + 1)
-				// make the high bits 240, to shift it up the code sheet
-				lowBits = lowBits | (128 + 64 + 32 + 16)
-				log.Printf("Low: %08b\n", lowBits)
-				//append the new low byte to the string
-				stringBuffer = stringBuffer + m[lowBits]
 
-				// to get the sign (there is definitely and easier way with java bytes...)
-				// shift 4 bits to the right, to get rid of the low bits
-				highBits := datumConverted >> 4
-				log.Printf("High: %08b : %d\n", highBits, highBits)
-				signInt := int8(highBits)
-				log.Printf("Sign: %d\n", signInt)
-				//if the highBits (shifted) == 13 its a negative sign
-				if signInt == 13 {
+			// we need to get the bottom 4 bits from this first number only
+			if extra4BitFlag {
+				low4Bits := datum & (8 + 4 + 2 + 1)
+				stringBuffer = stringBuffer + strconv.Itoa(int(low4Bits))
+				// reset flag so it doesn't catch next iteration
+				extra4BitFlag = false
+			} else if sIntCount != field.sLength {
+				// if not the last element, just append
+				byteSlice = append(byteSlice, datum)
+				high4Bits := datum >> 4
+				stringBuffer = stringBuffer + strconv.Itoa(int(high4Bits))
+
+				low4Bits := datum & (8 + 4 + 2 + 1)
+				stringBuffer = stringBuffer + strconv.Itoa(int(low4Bits))
+				log.Printf("High: %08b, Low: %08b", high4Bits, low4Bits)
+				log.Printf("%d: %d -> %d -> %s\n", j, datum, byteSlice, stringBuffer)
+			} else {
+				log.Printf("Last 8 bytes: %08b", datum)
+				// this is the last byte, so we need to parse it special like
+				// the top 4 bits we want
+				high4Bits := datum >> 4
+				stringBuffer = stringBuffer + strconv.Itoa(int(high4Bits))
+
+				low4Bits := datum & (8 + 4 + 2 + 1)
+				log.Printf("Sign: %08b", low4Bits)
+				//if the lowbits  == 13 its a negative sign
+				if low4Bits == 13 {
 					stringBuffer = "-" + stringBuffer
 				}
 			}
@@ -391,9 +421,9 @@ func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
 		var byteSlice []int8
 		var stringBuffer string = ""
 
-		for _, datumInt := range datum {
-			byteSlice = append(byteSlice, (int8)(datumInt+256))
-			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		for _, datumByte := range datum {
+			byteSlice = append(byteSlice, (int8)(datumByte))
+			stringBuffer = stringBuffer + m[(uint8)(datumByte)]
 		}
 		fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
 		startPos += field.length
@@ -402,9 +432,9 @@ func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
-		for _, datumInt := range datum {
-			byteSlice = append(byteSlice, (uint8)(datumInt+256))
-			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		for _, datumByte := range datum {
+			byteSlice = append(byteSlice, datumByte)
+			stringBuffer = stringBuffer + m[datumByte]
 		}
 		fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
 		startPos += field.length
@@ -440,9 +470,9 @@ func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
-		for _, datumInt := range datum {
-			byteSlice = append(byteSlice, (uint8)(datumInt+256))
-			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		for _, datumByte := range datum {
+			byteSlice = append(byteSlice, datumByte)
+			stringBuffer = stringBuffer + m[datumByte]
 		}
 		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
 		startPos += field.length
@@ -451,11 +481,11 @@ func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
-		for _, datumInt := range datum {
-			byteSlice = append(byteSlice, (uint8)(datumInt+256))
-			stringBuffer = stringBuffer + m[(uint8)(datumInt+256)]
+		for _, datumByte := range datum {
+			byteSlice = append(byteSlice, datumByte)
+			stringBuffer = stringBuffer + m[datumByte]
 		}
-		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
+		fmt.Printf("%d -> %d -> %s\n", datum, datum, stringBuffer)
 		startPos += field.length
 		field.Data = stringBuffer
 	}
@@ -463,7 +493,7 @@ func parseFieldData(field *Field, data []int, startPos int32) (int32, any) {
 
 }
 
-func ParseData(fileStruct *File, data []int) {
+func ParseBinaryData(fileStruct *File, data []byte) {
 
 	startPos := fileStruct.StartPos
 	var dataResult any
