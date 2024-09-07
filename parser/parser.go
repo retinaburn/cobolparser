@@ -94,29 +94,28 @@ func newFieldForSignedBinary(label string, length int32, fieldType PicType) Fiel
 		f.length = 1
 	} else if length <= 5 {
 		f.length = 2
-	} else if length <= 10 {
+	} else if length <= 9 {
 		f.length = 4
-	} else if length <= 19 {
+	} else if length <= 10 {
 		f.length = 8
 	}
 	f.fieldType = fieldType
 	return f
 }
 
-func newFieldForUnsignedBinary(label string, length int32, fieldType PicType) Field {
+func newFieldForUnsignedBinary(label string, length int32, fieldType PicType, startPos int32) Field {
 	//https://techjogging.com/cobol-data-types.html
 	f := Field{}
 	f.label = label
-	if length <= 3 {
-		f.length = 1
-	} else if length <= 5 {
+	if length <= 4 {
 		f.length = 2
-	} else if length <= 10 {
+	} else if length <= 9 {
 		f.length = 4
 	} else if length <= 20 {
 		f.length = 8
 	}
 	f.fieldType = fieldType
+	f.startPos = startPos
 	return f
 }
 
@@ -142,12 +141,13 @@ func ParseLexData(lexer *Lexer) File {
 	unsignedBinaryRE := regexp.MustCompile(unsignedBinaryREString)
 	floatREString := `^PIC S9\((\d+)\)V9\((\d+)\) COMP-[12]$`
 	floatRE := regexp.MustCompile(floatREString)
-	alphaREString := `^PIC A\((\d+)\)`
+	alphaREString := `^PIC A\((\d+)\)$`
 	alphaRE := regexp.MustCompile(alphaREString)
-	numREString := `^PIC 9\((\d+)\)`
+	numREString := `^PIC 9\((\d+)\)$`
 	numRE := regexp.MustCompile(numREString)
 
 	var lastIdent string
+	var startPos int32 = 0
 	for {
 		pos, tok, lit := lexer.Lex()
 		if tok == EOF {
@@ -163,6 +163,7 @@ func ParseLexData(lexer *Lexer) File {
 			// Capture String Type: "PIC X(n)"
 			capGroups := stringRE.FindStringSubmatch(lit)
 			if len(capGroups) > 0 {
+				log.Printf("%s\n", capGroups)
 				foundLength, err := strconv.Atoi(capGroups[1])
 				if err != nil {
 					panic(err)
@@ -172,8 +173,8 @@ func ParseLexData(lexer *Lexer) File {
 
 			// Capture Decimal Type "PIC S9(p)V9(s) COMP-3"
 			capGroups = decimalRE.FindStringSubmatch(lit)
-			log.Printf("Cap Group: %s", capGroups)
 			if len(capGroups) > 0 {
+				log.Printf("%s\n", capGroups)
 				foundPLength, err := strconv.Atoi(capGroups[1])
 				if err != nil {
 					panic(err)
@@ -206,7 +207,7 @@ func ParseLexData(lexer *Lexer) File {
 			// Capture Numeric Unsigned Type "PIC 9(p) COMP" or "PIC 9 COMP"
 			capGroups = unsignedBinaryRE.FindStringSubmatch(lit)
 			if len(capGroups) > 0 {
-				log.Printf("%s\n", capGroups)
+				log.Printf("CapGroups: %s\n", capGroups)
 				length := 1
 				if len(capGroups) == 2 && capGroups[1] != "" {
 					var err error
@@ -216,7 +217,9 @@ func ParseLexData(lexer *Lexer) File {
 					}
 
 				}
-				file.addField(newFieldForUnsignedBinary(lastIdent, int32(length), UNSIGNED_BINARY))
+				f := newFieldForUnsignedBinary(lastIdent, int32(length), UNSIGNED_BINARY, startPos)
+				file.addField(f)
+				startPos += f.length
 			}
 
 			// Capture Float Type "PIC S9(p)V9(s) COMP-1" or "PIC S9(p)V9(s) COMP-2"
@@ -434,10 +437,16 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 
 		for _, datumByte := range datum {
 			byteSlice = append(byteSlice, datumByte)
-			stringBuffer = stringBuffer + m[datumByte]
+			stringBuffer = stringBuffer + strconv.Itoa(int(datumByte))
 		}
-		fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
+		result, err := strconv.Atoi(stringBuffer)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("%s: %d -> %d -> %08b -> %s -> %d\n", field.label, datum, byteSlice, byteSlice, stringBuffer, result)
+		field.Data = result
 		startPos += field.length
+		return startPos, field.Data
 	} else if field.fieldType == FLOAT4 {
 		exponent := data[startPos : startPos+1]
 		startPos += 1
@@ -476,6 +485,11 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 		}
 		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
 		startPos += field.length
+		var err error
+		field.Data, err = strconv.Atoi(stringBuffer)
+		if err != nil {
+			panic(err)
+		}
 	} else if field.fieldType == NUM_CHAR {
 		datum := data[startPos : startPos+field.length]
 		var byteSlice []uint8

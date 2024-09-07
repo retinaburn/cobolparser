@@ -37,8 +37,14 @@ func printField(fileStruct *parser.File, fieldLabel string) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Data by field %s pull: %s\n", fieldLabel, field.Data)
-	fmt.Printf("Data by field %s index: %s\n", fieldLabel, (fileStruct.Fields[0]).Data)
+	switch field.Data.(type) {
+	case int:
+		fmt.Printf("Data by field %s pull: %d\n", fieldLabel, field.Data)
+		fmt.Printf("Data by field %s index: %d\n", fieldLabel, (fileStruct.Fields[0]).Data)
+	case string:
+		fmt.Printf("Data by field %s pull: %s\n", fieldLabel, field.Data)
+		fmt.Printf("Data by field %s index: %s\n", fieldLabel, (fileStruct.Fields[0]).Data)
+	}
 
 }
 
@@ -100,13 +106,29 @@ func largedecimal() {
 
 	printField(&fileStruct, fieldLabel)
 }
+func unsignedComposite() {
+
+	lexer := getLexer("resources/unsigned-composite.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/unsigned-composite.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	log.Printf("%08b", readBytes[0:len])
+
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "TRANS-ID-1"
+	printField(&fileStruct, fieldLabel)
+}
+
 func main() {
 
 	// number()
 	// string2()
-	largedecimal()
-	//file, err := os.Open("resources/unsigned-binary.copybook")
-	//file, err := os.Open("resources/unsigned-binary.copybook")
+	//largedecimal()
+	unsignedComposite()
+
 	//file, err := os.Open("resources/float.copybook")
 	//file, err := os.Open("resources/alpha.copybook")
 	// file, err := os.Open("resources/number.copybook")
