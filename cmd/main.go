@@ -141,13 +141,30 @@ func float() {
 	printField(&fileStruct, fieldLabel)
 }
 
+func alpha() {
+
+	lexer := getLexer("resources/alpha.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/alpha.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	log.Printf("%08b", readBytes[0:len])
+
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "TRANS-ID-1"
+	printField(&fileStruct, fieldLabel)
+}
+
 func main() {
 
 	// number()
 	// string2()
 	//largedecimal()
 	//unsignedComposite()
-	float()
+	//float()
+	alpha()
 
 	//file, err := os.Open("resources/float.copybook")
 	//file, err := os.Open("resources/alpha.copybook")

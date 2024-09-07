@@ -485,11 +485,7 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 		}
 		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
 		startPos += field.length
-		var err error
-		field.Data, err = strconv.Atoi(stringBuffer)
-		if err != nil {
-			panic(err)
-		}
+		field.Data = stringBuffer
 	} else if field.fieldType == NUM_CHAR {
 		datum := data[startPos : startPos+field.length]
 		var byteSlice []uint8
