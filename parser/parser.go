@@ -472,8 +472,8 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 
 		bits := binary.LittleEndian.Uint32(dataByte)
 		floatVal := math.Float32frombits(bits)
-
 		fmt.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
+		field.Data = floatVal
 	} else if field.fieldType == ALPHA_CHAR {
 		datum := data[startPos : startPos+field.length]
 		var byteSlice []uint8

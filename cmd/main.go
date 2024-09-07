@@ -44,6 +44,9 @@ func printField(fileStruct *parser.File, fieldLabel string) {
 	case string:
 		fmt.Printf("Data by field %s pull: %s\n", fieldLabel, field.Data)
 		fmt.Printf("Data by field %s index: %s\n", fieldLabel, (fileStruct.Fields[0]).Data)
+	case float32:
+		fmt.Printf("Data by field %s pull: %v\n", fieldLabel, field.Data)
+		fmt.Printf("Data by field %s index: %v\n", fieldLabel, (fileStruct.Fields[0]).Data)
 	}
 
 }
@@ -122,12 +125,29 @@ func unsignedComposite() {
 	printField(&fileStruct, fieldLabel)
 }
 
+func float() {
+
+	lexer := getLexer("resources/float.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/float.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	log.Printf("%08b", readBytes[0:len])
+
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "TRANS-ID-1"
+	printField(&fileStruct, fieldLabel)
+}
+
 func main() {
 
 	// number()
 	// string2()
 	//largedecimal()
-	unsignedComposite()
+	//unsignedComposite()
+	float()
 
 	//file, err := os.Open("resources/float.copybook")
 	//file, err := os.Open("resources/alpha.copybook")
