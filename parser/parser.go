@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -45,8 +46,8 @@ type File struct {
 
 func (f *File) Field(fieldName string) (*Field, error) {
 	for i, field := range f.Fields {
-		log.Printf("Found field %s: %d, %s, %d, %s", fieldName, i, field.label, field.startPos, field.Data)
 		if field.label == fieldName {
+			log.Printf("Found field %s: %d, %s, %d, %s", fieldName, i, field.label, field.startPos, field.Data)
 			return &f.Fields[i], nil
 		}
 	}
@@ -90,13 +91,11 @@ func newFieldForSignedBinary(label string, length int32, fieldType PicType) Fiel
 	//https://techjogging.com/cobol-data-types.html
 	f := Field{}
 	f.label = label
-	if length <= 3 {
-		f.length = 1
-	} else if length <= 5 {
+	if length <= 4 {
 		f.length = 2
 	} else if length <= 9 {
 		f.length = 4
-	} else if length <= 10 {
+	} else if length <= 20 {
 		f.length = 8
 	}
 	f.fieldType = fieldType
@@ -421,14 +420,34 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 		field.Data = stringAsDecimal
 	} else if field.fieldType == SIGNED_BINARY {
 		datum := data[startPos : startPos+field.length]
-		var byteSlice []int8
-		var stringBuffer string = ""
 
-		for _, datumByte := range datum {
-			byteSlice = append(byteSlice, (int8)(datumByte))
-			stringBuffer = stringBuffer + m[(uint8)(datumByte)]
+		isLessThan4Bytes := false
+		signBit := datum[0] >> 7
+		log.Printf("Sign Bit: %b\n", signBit)
+
+		// We have to handle data lengths of 2 bytes specially
+		// because the binary.Read can't operate on them natively
+		if len(datum) < 4 {
+			isLessThan4Bytes = true
+			datum4Byte := make([]byte, 4)
+			datum4Byte[2] = datum[0]
+			datum4Byte[3] = datum[1]
+			datum = datum4Byte
 		}
-		fmt.Printf("%d -> %d -> %08b\n", datum, byteSlice, byteSlice)
+
+		var num int32
+		err := binary.Read(bytes.NewReader(datum), binary.BigEndian, &num)
+		if err != nil {
+			fmt.Println(err)
+		}
+		if isLessThan4Bytes && signBit == 1 {
+			newNum := (65536 - num) * -1
+			log.Printf("Num: %d -> New Num: %d", num, newNum)
+			num = newNum
+		}
+
+		log.Printf("bytes: %08b -> int: %d %d -> %d\n", datum, int(datum[0]), int(datum[1]), num)
+		field.Data = num
 		startPos += field.length
 	} else if field.fieldType == UNSIGNED_BINARY {
 		datum := data[startPos : startPos+field.length]
@@ -501,6 +520,24 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 	}
 	return startPos, field.Data
 
+}
+
+func increment(datum []byte) []byte {
+	datumIndex := 0
+	//datum = ^ datum
+
+	//datum[0] = datum[0] + 1
+	bit0 := datum[datumIndex] & 128 >> 7
+	bit1 := datum[datumIndex] & 64 >> 6
+	bit2 := datum[datumIndex] & 32 >> 5
+	bit3 := datum[datumIndex] & 16 >> 4
+	bit4 := datum[datumIndex] & 8 >> 3
+	bit5 := datum[datumIndex] & 4 >> 2
+	bit6 := datum[datumIndex] & 2 >> 1
+	bit7 := datum[datumIndex] & 1
+	log.Printf("byte-0: 0:%b,1:%b,2:%b,3:%b,4:%b,5:%b,6:%b,7:%b",
+		bit0, bit1, bit2, bit3, bit4, bit5, bit6, bit7)
+	return datum
 }
 
 func ParseBinaryData(fileStruct *File, data []byte) {
