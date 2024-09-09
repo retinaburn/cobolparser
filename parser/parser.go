@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,6 +29,30 @@ const (
 	DISPLAY_NUMERIC
 )
 
+func (p PicType) String() string {
+	switch p {
+	case SIGNED_BINARY:
+		return "SIGNED_BINARY"
+	case UNSIGNED_BINARY:
+		return "UNSIGNED_BINARY"
+	case FLOAT4:
+		return "FLOAT4"
+	case FLOAT8:
+		return "FLOAT8"
+	case ALPHA_CHAR:
+		return "ALPHA_CHAR"
+	case ANY_CHAR:
+		return "ANY_CHAR"
+	case NUM_CHAR:
+		return "NUM_CHAR"
+	case DECIMAL:
+		return "DECIMAL"
+	case DISPLAY_NUMERIC:
+		return "DISPLAY_NUMERIC"
+	}
+	return ""
+}
+
 type Field struct {
 	label     string
 	length    int32
@@ -36,12 +61,70 @@ type Field struct {
 	fieldType PicType
 	startPos  int32
 	Data      any
+	rawData   []byte
 }
 
 type File struct {
 	RecordLength int32
 	Fields       []Field
 	StartPos     int32
+}
+
+func getLength(fieldType PicType, newValue any) (int, error) {
+	switch fieldType {
+	case ANY_CHAR:
+		stringVal, ok := newValue.(string)
+		if !ok {
+			return -1, errors.New("could not convert 'any' to string")
+		}
+		return len(stringVal), nil
+	case ALPHA_CHAR:
+		stringVal, ok := newValue.(string)
+		if !ok {
+			return -1, errors.New("could not convert 'any' to string")
+		}
+		return len(stringVal), nil
+	case NUM_CHAR:
+		numVal, ok := newValue.(string)
+		if !ok {
+			return -1, errors.New("could not convert 'any' to string")
+		}
+		return len(numVal), nil
+	default:
+		return -1, fmt.Errorf("unsupported type for getLength %s", fieldType)
+	}
+}
+func getLengthOfField(field *Field) (int, error) {
+	switch field.fieldType {
+	case ANY_CHAR:
+		return int(field.length), nil
+	case ALPHA_CHAR:
+		return int(field.length), nil
+	case NUM_CHAR:
+		return int(field.length), nil
+	default:
+		return -1, fmt.Errorf("unsupported type for getLength %s", field.fieldType)
+	}
+}
+
+func (f *Field) SetData(newValue any) error {
+	if reflect.TypeOf(newValue) != reflect.TypeOf(f.Data) {
+		return fmt.Errorf("%v is of type %T, expected type %T", f.Data, newValue, f.Data)
+	}
+	length, err := getLength(f.fieldType, newValue)
+	if err != nil {
+		panic(err)
+	}
+	lengthOfField, err := getLengthOfField(f)
+	if err != nil {
+		panic(err)
+	}
+	if int32(length) > int32(lengthOfField) {
+		log.Fatalf("length of %s %d greater than %d", f.label, length, lengthOfField)
+	}
+	log.Printf("Setting %s to %v", f.label, newValue)
+	f.Data = newValue
+	return setFieldData(f, newValue)
 }
 
 func (f *File) Field(fieldName string) (*Field, error) {
@@ -269,8 +352,87 @@ func ParseLexData(lexer *Lexer) File {
 	}
 	return file
 }
+func setFieldData(field *Field, newValue any) error {
+	m := map[string]uint8{
+		"": 0, "â": 66, "ä": 67, "à": 68, "á": 69,
+		"ã": 70, "å": 71, "ç": 72, "ñ": 73, "¢": 74,
+		".": 75, "<": 76, "(": 77, "+": 78, "|": 79,
+		"&": 80, "é": 81, "ê": 82, "ë": 83, "è": 84,
+		"í": 85, "î": 86, "ï": 87, "ì": 88, "ß": 89,
+		"!": 90, "$": 91, "*": 92, ")": 93, ";": 94,
+		"¬": 95, "-": 96, "/": 97, "Â": 98, "Ä": 99,
+		"À": 100, "Á": 101, "Ã": 102, "Å": 103, "Ç": 104,
+		"Ñ": 105, "¦": 106, ",": 107, "%": 108, "_": 109,
+		">": 110, "?": 111, "ø": 112, "É": 113, "Ê": 114,
+		"Ë": 115, "È": 116, "Í": 117, "Î": 118, "Ï": 119,
+		"Ì": 120, "`": 121, ":": 122, "#": 123, "@": 124,
+		"'": 125, "=": 126, "\"": 127, "Ø": 128, "a": 129,
+		"b": 130, "c": 131, "d": 132, "e": 133, "f": 134,
+		"g": 135, "h": 136, "i": 137, "«": 138, "»": 139,
+		"ð": 140, "ý": 141, "þ": 142, "±": 143, "°": 144,
+		"j": 145, "k": 146, "l": 147, "m": 148, "n": 149,
+		"o": 150, "p": 151, "q": 152, "r": 153, "ª": 154,
+		"º": 155, "æ": 156, "¸": 157, "Æ": 158, "¤": 159,
+		"µ": 160, "~": 161, "s": 162, "t": 163, "u": 164,
+		"v": 165, "w": 166, "x": 167, "y": 168, "z": 169,
+		"¡": 170, "¿": 171, "Ð": 172, "Ý": 173, "Þ": 174,
+		"®": 175, "^": 176, "£": 177, "¥": 178, "·": 179,
+		"©": 180, "§": 181, "¶": 182, "¼": 183, "½": 184,
+		"¾": 185, "[": 186, "]": 187, "¯": 188, "¨": 189,
+		"´": 190, "×": 191, "{": 192, "A": 193, "B": 194,
+		"C": 195, "D": 196, "E": 197, "F": 198, "G": 199,
+		"H": 200, "I": 201, "­": 202, "ô": 203, "ö": 204,
+		"ò": 205, "ó": 206, "õ": 207, "}": 208, "J": 209,
+		"K": 210, "L": 211, "M": 212, "N": 213, "O": 214,
+		"P": 215, "Q": 216, "R": 217, "¹": 218, "û": 219,
+		"ü": 220, "ù": 221, "ú": 222, "ÿ": 223, "\\": 224,
+		"÷": 225, "S": 226, "T": 227, "U": 228, "V": 229,
+		"W": 230, "X": 231, "Y": 232, "Z": 233, "²": 234,
+		"Ô": 235, "Ö": 236, "Ò": 237, "Ó": 238, "Õ": 239,
+		"0": 240, "1": 241, "2": 242, "3": 243, "4": 244,
+		"5": 245, "6": 246, "7": 247, "8": 248, "9": 249,
+		"³": 250, "Û": 251, "Ü": 252, "Ù": 253, "Ú": 254,
+	}
 
-func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
+	switch field.fieldType {
+	case ALPHA_CHAR:
+		stringVal, ok := newValue.(string)
+		if !ok {
+			return fmt.Errorf("unable to cast %v of type %T as string", newValue, newValue)
+		}
+		for i, v := range stringVal {
+			newByte := m[string(v)]
+			log.Printf("rune: %s -> %d", string(v), newByte)
+			field.rawData[i] = newByte
+		}
+		return nil
+	case ANY_CHAR:
+		stringVal, ok := newValue.(string)
+		if !ok {
+			return fmt.Errorf("unable to cast %v of type %T as string", newValue, newValue)
+		}
+		for i, v := range stringVal {
+			newByte := m[string(v)]
+			log.Printf("rune: %s -> %d", string(v), newByte)
+			field.rawData[i] = newByte
+		}
+		return nil
+	case NUM_CHAR:
+		stringVal, ok := newValue.(string)
+		if !ok {
+			return fmt.Errorf("unable to cast %v of type %T as string", newValue, newValue)
+		}
+		for i, v := range stringVal {
+			newByte := m[string(v)]
+			log.Printf("rune: %s -> %d", string(v), newByte)
+			field.rawData[i] = newByte
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported mapping for field data %s", field.fieldType)
+}
+
+func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 	m := map[uint8]string{
 		0: "", 1: "", 2: "", 3: "", 4: "",
 		5: "", 6: "", 7: "", 8: "", 9: "",
@@ -327,16 +489,17 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 	}
 
 	if field.fieldType == ANY_CHAR {
-		datum := data[startPos : startPos+field.length]
+		field.startPos = fieldStartPos
+		field.rawData = data[field.startPos : field.startPos+field.length]
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
-		for _, datumByte := range datum {
+		for _, datumByte := range field.rawData {
 			byteSlice = append(byteSlice, datumByte)
 			stringBuffer = stringBuffer + m[datumByte]
 		}
-		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
-		startPos += field.length
+		fmt.Printf("%d -> %d -> %s\n", field.rawData, byteSlice, stringBuffer)
+		fieldStartPos += field.length
 		field.Data = stringBuffer
 	} else if field.fieldType == DECIMAL {
 		var byteSlice []uint8
@@ -352,7 +515,7 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 			endPos = (field.pLength - 1) / 2
 			extra4BitFlag = true
 		}
-		for j, datumByte := range data[startPos : startPos+endPos] {
+		for j, datumByte := range data[fieldStartPos : fieldStartPos+endPos] {
 			byteSlice = append(byteSlice, datumByte)
 			high4Bits := datumByte >> 4
 			stringBuffer = stringBuffer + strconv.Itoa(int(high4Bits))
@@ -361,20 +524,20 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 			log.Printf("High: %08b, Low: %08b", high4Bits, low4Bits)
 			log.Printf("%d: %d -> %d -> %s\n", j, datumByte, byteSlice, stringBuffer)
 		}
-		startPos = startPos + endPos
+		fieldStartPos = fieldStartPos + endPos
 		if extra4BitFlag {
-			log.Printf("We need the first 4 bits only of: %08b", data[startPos])
-			byteSlice = append(byteSlice, data[startPos])
-			high4Bits := data[startPos] >> 4
+			log.Printf("We need the first 4 bits only of: %08b", data[fieldStartPos])
+			byteSlice = append(byteSlice, data[fieldStartPos])
+			high4Bits := data[fieldStartPos] >> 4
 			stringBuffer = stringBuffer + strconv.Itoa(int(high4Bits))
-			log.Printf("?: %d -> %d -> %s\n", data[startPos], byteSlice, stringBuffer)
+			log.Printf("?: %d -> %d -> %s\n", data[fieldStartPos], byteSlice, stringBuffer)
 		}
 
 		stringBuffer = stringBuffer + "."
 		sIntCount := int32(0)
 		var stringAsDecimal decimal.Decimal
 		// parse the right side of the decimal
-		for j, datum := range data[startPos : startPos+field.sLength] {
+		for j, datum := range data[fieldStartPos : fieldStartPos+field.sLength] {
 			sIntCount++
 			datumConverted := datum
 			byteSlice = append(byteSlice, datumConverted)
@@ -419,7 +582,7 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 		fmt.Printf("%d -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
 		field.Data = stringAsDecimal
 	} else if field.fieldType == SIGNED_BINARY {
-		datum := data[startPos : startPos+field.length]
+		datum := data[fieldStartPos : fieldStartPos+field.length]
 
 		isLessThan4Bytes := false
 		signBit := datum[0] >> 7
@@ -448,9 +611,9 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 
 		log.Printf("bytes: %08b -> int: %d %d -> %d\n", datum, int(datum[0]), int(datum[1]), num)
 		field.Data = num
-		startPos += field.length
+		field.startPos += field.length
 	} else if field.fieldType == UNSIGNED_BINARY {
-		datum := data[startPos : startPos+field.length]
+		datum := data[fieldStartPos : fieldStartPos+field.length]
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
@@ -464,13 +627,12 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 		}
 		fmt.Printf("%s: %d -> %d -> %08b -> %s -> %d\n", field.label, datum, byteSlice, byteSlice, stringBuffer, result)
 		field.Data = result
-		startPos += field.length
-		return startPos, field.Data
+		field.startPos += field.length
 	} else if field.fieldType == FLOAT4 {
-		exponent := data[startPos : startPos+1]
-		startPos += 1
-		mantissa := data[startPos : startPos+3]
-		startPos += 3
+		exponent := data[fieldStartPos : fieldStartPos+1]
+		fieldStartPos += 1
+		mantissa := data[fieldStartPos : fieldStartPos+3]
+		fieldStartPos += 3
 
 		var exponentByte []byte
 		for _, val := range exponent {
@@ -494,19 +656,22 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 		fmt.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
 		field.Data = floatVal
 	} else if field.fieldType == ALPHA_CHAR {
-		datum := data[startPos : startPos+field.length]
+		field.startPos = fieldStartPos
+		field.rawData = data[field.startPos : field.startPos+field.length]
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
-		for _, datumByte := range datum {
+		for _, datumByte := range field.rawData {
 			byteSlice = append(byteSlice, datumByte)
 			stringBuffer = stringBuffer + m[datumByte]
 		}
-		fmt.Printf("%d -> %d -> %s\n", datum, byteSlice, stringBuffer)
-		startPos += field.length
+		fmt.Printf("%d -> %d -> %s\n", field.rawData, byteSlice, stringBuffer)
+		fieldStartPos += field.length
 		field.Data = stringBuffer
 	} else if field.fieldType == NUM_CHAR {
-		datum := data[startPos : startPos+field.length]
+		field.startPos = fieldStartPos
+		datum := data[fieldStartPos : fieldStartPos+field.length]
+		field.rawData = data[field.startPos : field.startPos+field.length]
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
@@ -515,40 +680,32 @@ func parseFieldData(field *Field, data []byte, startPos int32) (int32, any) {
 			stringBuffer = stringBuffer + m[datumByte]
 		}
 		fmt.Printf("%d -> %d -> %s\n", datum, datum, stringBuffer)
-		startPos += field.length
+		fieldStartPos += field.length
 		field.Data = stringBuffer
 	}
-	return startPos, field.Data
+	return fieldStartPos
+	//return startPos, field.Data
 
-}
-
-func increment(datum []byte) []byte {
-	datumIndex := 0
-	//datum = ^ datum
-
-	//datum[0] = datum[0] + 1
-	bit0 := datum[datumIndex] & 128 >> 7
-	bit1 := datum[datumIndex] & 64 >> 6
-	bit2 := datum[datumIndex] & 32 >> 5
-	bit3 := datum[datumIndex] & 16 >> 4
-	bit4 := datum[datumIndex] & 8 >> 3
-	bit5 := datum[datumIndex] & 4 >> 2
-	bit6 := datum[datumIndex] & 2 >> 1
-	bit7 := datum[datumIndex] & 1
-	log.Printf("byte-0: 0:%b,1:%b,2:%b,3:%b,4:%b,5:%b,6:%b,7:%b",
-		bit0, bit1, bit2, bit3, bit4, bit5, bit6, bit7)
-	return datum
 }
 
 func ParseBinaryData(fileStruct *File, data []byte) {
-
-	startPos := fileStruct.StartPos
-	var dataResult any
-	for i, v := range fileStruct.Fields {
-		startPos, dataResult = parseFieldData(&v, data, startPos)
-		fileStruct.Fields[i].startPos = startPos
-		fileStruct.Fields[i].Data = dataResult
-		log.Printf("i=%d, label=%s, length=%d, startPos=%d\n", i, v.label, v.length, v.startPos)
+	recordStartPos := fileStruct.StartPos
+	fieldStartPos := recordStartPos
+	for i := range fileStruct.Fields {
+		fieldStartPos = parseFieldData(&fileStruct.Fields[i], data, fieldStartPos)
+		//fileStruct.Fields[i].startPos = startPos
+		//fileStruct.Fields[i].Data = dataResult
+		log.Printf("i=%d, label=%s, length=%d, startPos=%d, rawData=%08b\n", i, fileStruct.Fields[i].label, fileStruct.Fields[i].length, fileStruct.Fields[i].startPos, fileStruct.Fields[i].rawData)
 	}
 	fileStruct.StartPos = fileStruct.StartPos + fileStruct.RecordLength
+}
+
+func GetBinaryData(fileStruct *File) []byte {
+	var data []byte
+	for i, v := range fileStruct.Fields {
+		log.Printf("i=%d, label=%s, length=%d, startPos=%d, rawData=%08b\n", i, v.label, v.length, v.startPos, v.rawData)
+		data = append(data, v.rawData...)
+	}
+	fileStruct.StartPos = fileStruct.StartPos + fileStruct.RecordLength
+	return data
 }

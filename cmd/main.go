@@ -177,6 +177,126 @@ func signedcomposite() {
 	printField(&fileStruct, fieldLabel)
 }
 
+func setalpha() {
+
+	lexer := getLexer("resources/alpha.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/alpha.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	originalRawData := make([]byte, len)
+	copy(originalRawData, readBytes[0:len])
+	log.Printf("Raw Data: %08b", originalRawData)
+
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "TRANS-ID-1"
+	printField(&fileStruct, fieldLabel)
+
+	field, err := fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	err = field.SetData(1234)
+	if err != nil {
+		log.Println(err)
+	}
+	err = field.SetData("B")
+	if err != nil {
+		log.Println(err)
+	}
+	log.Printf("Original Data: %08b", originalRawData)
+	log.Printf("Modified Data: %08b", parser.GetBinaryData(&fileStruct))
+
+	fieldLabel = "TRANS-ID-2"
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	err = field.SetData("CD")
+	if err != nil {
+		log.Println(err)
+	}
+	log.Printf("Original Data: %08b", originalRawData)
+	log.Printf("Modified Data: %08b", parser.GetBinaryData(&fileStruct))
+
+	printField(&fileStruct, fieldLabel)
+
+	//field.SetData("CDE") //logs error and exits
+}
+
+func setany() {
+
+	lexer := getLexer("resources/string.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/string.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	originalRawData := make([]byte, len)
+	copy(originalRawData, readBytes[0:len])
+	log.Printf("Raw Data: %08b", originalRawData)
+
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "TRANS-ID"
+	printField(&fileStruct, fieldLabel)
+
+	field, err := fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	err = field.SetData("AB")
+	if err != nil {
+		panic(err)
+	}
+	err = field.SetData("YZ")
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("Original Data: %08b", originalRawData)
+	log.Printf("Modified Data: %08b", parser.GetBinaryData(&fileStruct))
+
+	printField(&fileStruct, fieldLabel)
+
+	//field.SetData("CDE") //logs error and exits
+}
+
+func setnumber() {
+
+	lexer := getLexer("resources/number.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/number.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	originalRawData := make([]byte, len)
+	copy(originalRawData, readBytes[0:len])
+
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "TRANS-ID"
+	printField(&fileStruct, fieldLabel)
+
+	field, err := fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	err = field.SetData("1")
+	if err != nil {
+		panic(err)
+	}
+	err = field.SetData("2")
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("Original Data: %08b", originalRawData)
+	log.Printf("Modified Data: %08b", parser.GetBinaryData(&fileStruct))
+
+	printField(&fileStruct, fieldLabel)
+}
+
 func main() {
 
 	// number()
@@ -185,6 +305,10 @@ func main() {
 	//unsignedComposite()
 	//float()
 	//alpha()
-	signedcomposite()
+	//signedcomposite()
+
+	//setalpha()
+	//setany()
+	setnumber()
 
 }
