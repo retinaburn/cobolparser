@@ -326,8 +326,8 @@ func setlargedecimal() {
 		panic(err)
 	}
 
-	newVal := "-12345678901.99"
-	fmt.Printf("Setting to %s", newVal)
+	newVal := "1.01"
+	fmt.Printf("Setting to %s\n", newVal)
 	stringAsDecimal, err := decimal.NewFromString(newVal)
 	if err != nil {
 		log.Fatal("failed to cast string as decimal")
@@ -336,7 +336,6 @@ func setlargedecimal() {
 	if err != nil {
 		panic(err)
 	}
-	printField(&fileStruct, fieldLabel)
 	fmt.Printf("Reparse\n")
 	updatedBytes := parser.GetBinaryData(&fileStruct)
 	fmt.Printf("Modified Data: %08b", updatedBytes)
@@ -344,20 +343,36 @@ func setlargedecimal() {
 	lexer = getLexer("resources/largedecimal.copybook")
 	fileStruct = parser.ParseLexData(lexer)
 	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
 	printField(&fileStruct, fieldLabel)
 
-	// stringAsDecimal, err = decimal.NewFromString("123.45")
-	// if err != nil {
-	// 	log.Fatal("failed to cast string as decimal")
-	// }
-	// err = field.SetData(stringAsDecimal)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	newVal = "-2.02"
+	fmt.Printf("Setting to %s\n", newVal)
+	stringAsDecimal, err = decimal.NewFromString(newVal)
+	if err != nil {
+		log.Fatal("failed to cast string as decimal")
+	}
+	err = field.SetData(stringAsDecimal)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Reparse\n")
+	updatedBytes = parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
 
-	// printField(&fileStruct, fieldLabel)
-	// fmt.Printf("Reparse\n")
-
+	lexer = getLexer("resources/largedecimal.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
+	printField(&fileStruct, fieldLabel)
 }
 
 func main() {
