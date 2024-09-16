@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/retinaburn/cobolparser/parser"
+	"github.com/shopspring/decimal"
 )
 
 func getLexer(fileName string) *parser.Lexer {
@@ -40,7 +41,7 @@ func printField(fileStruct *parser.File, fieldLabel string) {
 	log.Printf("Type: %T", field.Data)
 	switch field.Data.(type) {
 	case int32:
-		fmt.Printf("Data by field %s pull: %d\n", fieldLabel, field.Data)
+		fmt.Printf("Data by fied %s pull: %d\n", fieldLabel, field.Data)
 		fmt.Printf("Data by field %s index: %d\n", fieldLabel, (fileStruct.Fields[0]).Data)
 	case int:
 		fmt.Printf("Data by field %s pull: %d\n", fieldLabel, field.Data)
@@ -51,6 +52,13 @@ func printField(fileStruct *parser.File, fieldLabel string) {
 	case float32:
 		fmt.Printf("Data by field %s pull: %v\n", fieldLabel, field.Data)
 		fmt.Printf("Data by field %s index: %v\n", fieldLabel, (fileStruct.Fields[0]).Data)
+	case decimal.Decimal:
+		fmt.Printf("Data by field %s pull: %v\n", fieldLabel, field.Data)
+		fmt.Printf("Data by field %s index: %v\n", fieldLabel, (fileStruct.Fields[0]).Data)
+		fmt.Printf("Raw Data: %08b\n", field.GetRawData())
+
+	default:
+		fmt.Printf("Unsupported type in printField: %T, data: %08b", field.Data, field.GetRawData())
 	}
 
 }
@@ -297,6 +305,61 @@ func setnumber() {
 	printField(&fileStruct, fieldLabel)
 }
 
+func setlargedecimal() {
+
+	lexer := getLexer("resources/largedecimal.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/largedecimal-pos.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	originalRawData := make([]byte, len)
+	copy(originalRawData, readBytes[0:len])
+	fmt.Printf("Original Data: %08b\n", originalRawData[0:len])
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "AVAIL-BAL"
+	printField(&fileStruct, fieldLabel)
+
+	field, err := fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+
+	newVal := "-12345678901.99"
+	fmt.Printf("Setting to %s", newVal)
+	stringAsDecimal, err := decimal.NewFromString(newVal)
+	if err != nil {
+		log.Fatal("failed to cast string as decimal")
+	}
+	err = field.SetData(stringAsDecimal)
+	if err != nil {
+		panic(err)
+	}
+	printField(&fileStruct, fieldLabel)
+	fmt.Printf("Reparse\n")
+	updatedBytes := parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
+
+	lexer = getLexer("resources/largedecimal.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+	printField(&fileStruct, fieldLabel)
+
+	// stringAsDecimal, err = decimal.NewFromString("123.45")
+	// if err != nil {
+	// 	log.Fatal("failed to cast string as decimal")
+	// }
+	// err = field.SetData(stringAsDecimal)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// printField(&fileStruct, fieldLabel)
+	// fmt.Printf("Reparse\n")
+
+}
+
 func main() {
 
 	// number()
@@ -309,6 +372,7 @@ func main() {
 
 	//setalpha()
 	//setany()
-	setnumber()
+	//setnumber()
+	setlargedecimal()
 
 }

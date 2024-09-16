@@ -90,6 +90,18 @@ func getLength(fieldType PicType, newValue any) (int, error) {
 			return -1, errors.New("could not convert 'any' to string")
 		}
 		return len(numVal), nil
+	case DECIMAL:
+		// TODO: What are we going to do here, we can't return two values as the length
+		decimalVal, ok := newValue.(decimal.Decimal)
+		if !ok {
+			return -1, errors.New("could not convert 'any' to string")
+		}
+		decimalValLen := len(decimalVal.String())
+		// Negatives have the - sign at the start, remove from length for consistency
+		if decimalVal.IsNegative() {
+			decimalValLen--
+		}
+		return decimalValLen, nil
 	default:
 		return -1, fmt.Errorf("unsupported type for getLength %s", fieldType)
 	}
@@ -102,9 +114,18 @@ func getLengthOfField(field *Field) (int, error) {
 		return int(field.length), nil
 	case NUM_CHAR:
 		return int(field.length), nil
+	case DECIMAL:
+		return int(field.sLength + 1 + field.pLength), nil
 	default:
 		return -1, fmt.Errorf("unsupported type for getLength %s", field.fieldType)
 	}
+}
+
+func (f *Field) GetRawData() []byte {
+	return f.rawData
+}
+func (f *Field) SetRawData(rawBytes []byte) {
+	f.rawData = rawBytes
 }
 
 func (f *Field) SetData(newValue any) error {
@@ -124,13 +145,14 @@ func (f *Field) SetData(newValue any) error {
 	}
 	log.Printf("Setting %s to %v", f.label, newValue)
 	f.Data = newValue
-	return setFieldData(f, newValue)
+	f.setFieldData(newValue)
+	return nil
 }
 
 func (f *File) Field(fieldName string) (*Field, error) {
 	for i, field := range f.Fields {
 		if field.label == fieldName {
-			log.Printf("Found field %s: %d, %s, %d, %s", fieldName, i, field.label, field.startPos, field.Data)
+			log.Printf("Found field %s: i=%d, %s, startPos=%d, %s (%08b)", fieldName, i, field.label, field.startPos, field.Data, field.GetRawData())
 			return &f.Fields[i], nil
 		}
 	}
@@ -145,6 +167,10 @@ func (f *File) FieldNames() []string {
 		names = append(names, field.label)
 	}
 	return names
+}
+
+func (f *File) Reparse(fieldName string) {
+
 }
 
 func (f *File) addField(field Field) {
@@ -348,11 +374,11 @@ func ParseLexData(lexer *Lexer) File {
 			}
 		}
 
-		fmt.Printf("%d:%d\t|%s|\t|%s|\n", pos.line, pos.column, tok, lit)
+		log.Printf("%d:%d\t|%s|\t|%s|\n", pos.line, pos.column, tok, lit)
 	}
 	return file
 }
-func setFieldData(field *Field, newValue any) error {
+func (field *Field) setFieldData(newValue any) error {
 	m := map[string]uint8{
 		"": 0, "â": 66, "ä": 67, "à": 68, "á": 69,
 		"ã": 70, "å": 71, "ç": 72, "ñ": 73, "¢": 74,
@@ -428,8 +454,141 @@ func setFieldData(field *Field, newValue any) error {
 			field.rawData[i] = newByte
 		}
 		return nil
+	case DECIMAL:
+		decimalVal, ok := newValue.(decimal.Decimal)
+		if !ok {
+			return fmt.Errorf("unable to cast %v of type %T as bigdecimal", newValue, newValue)
+		}
+		isNegative := decimalVal.IsNegative()
+		if isNegative {
+			decimalVal = decimalVal.Mul(decimal.NewFromInt(-1))
+		}
+		bytes := make([]byte, field.pLength+field.sLength)
+		var decimalParts = strings.Split(decimalVal.String(), ".")
+		leftSide := decimalParts[0]
+		rightSide := decimalParts[1]
+		for i := range leftSide {
+			digit, err := strconv.Atoi(fmt.Sprintf("%d", leftSide[i]-48))
+			if err != nil {
+				panic(err)
+			}
+			/*
+				Given pLength of 11, sLength of 2 we have
+				> 00000000000.00
+				The starting index of 123.45 is:
+						V
+				00000000000.00
+				And we need pLength to be 0 based like array
+				so take (pLength-1) - length(123)
+			*/
+			fieldIndex := (int(field.pLength)) - len(leftSide) + i
+			log.Printf("Setting: %d = %v", fieldIndex, digit)
+			bytes[fieldIndex] = byte(digit)
+		}
+		for i, _ := range rightSide {
+			digit, err := strconv.Atoi(fmt.Sprintf("%d", rightSide[i]-48))
+			if err != nil {
+				panic(err)
+			}
+
+			fieldIndex := int(field.pLength) + i
+			log.Printf("Setting: %d = %v", fieldIndex, digit)
+			bytes[fieldIndex] = byte(digit)
+		}
+
+		log.Printf("Raw data: %08b, isNegative: %v\n", bytes, isNegative)
+		bytes = compress(int(field.pLength), int(field.sLength), bytes, isNegative)
+		log.Printf("Final data: %08b", bytes)
+		field.SetRawData(bytes)
+		return nil
+
 	}
 	return fmt.Errorf("unsupported mapping for field data %s", field.fieldType)
+}
+
+func compress(pLength int, sLength int, bytes []byte, isNegative bool) []byte {
+	/*
+		Binary Compression, each 8 bytes holds 2 4 byte digits from 0-9
+		pLength is the digits to the left of the decimal
+		sLength is the digits to the right of the decimal
+
+		The sign is encoded in the bottom half of the last byte (13 is negative)
+
+		Samples:
+		   p    s     Total Bytes   Example
+		   0    0     1             +/- 0         0000 ssss
+		   0    1     1             +/- 0.9       1001 ssss
+		   1    0     1             +/- 9         1001 ssss
+		   1    1     2             +/- 9.9       1001 1001 0000 ssss
+		   1    2     2             +/- 9.99      1001 1001 1001 ssss
+		   2    1     2             +/- 99.9      1001 1001 1001 ssss
+		   2    2     3             +/- 99.99     1001 1001 1001 1001 0000 ssss
+		   3    1     3             +/- 999.9     1001 1001 1001 1001 0000 ssss
+
+
+		Total target bytes = ((p + s) % 2) + 1
+
+		If pLength is odd
+			we have (pLength - 1) / 2 full bytes for the left side,
+			plus half a byte with the lower half part of right side of decimal
+			Dec: 123
+			Len: 3
+			Bin: 0001 0020, 0011 ????
+				where ???? is the s part
+
+		If pLength is even
+			we have pLength / 2 in the full bytes for the left side
+	*/
+	log.Printf("Incoming bytes to compress: %08b", bytes)
+	totalBytes := ((pLength + sLength) / 2) + 1
+	newBytes := make([]byte, totalBytes)
+
+	targetIndex := 0
+	targetLeftHalf := true
+	var newByte byte = 0
+	for targetIndex < totalBytes {
+		for pIndex := range pLength {
+			log.Printf("P %d: %08b", pIndex, bytes[pIndex])
+			if targetLeftHalf {
+				newByte = bytes[pIndex] << 4
+			} else {
+				newByte = newByte | bytes[pIndex]
+				newBytes[targetIndex] = newByte
+				log.Printf("Setting %d, New Bytes: %08b", targetIndex, newBytes)
+				targetIndex++
+			}
+			targetLeftHalf = !targetLeftHalf
+		}
+		for sIndex := range sLength {
+			log.Printf("S %d: %08b", sIndex, bytes[pLength+sIndex])
+			if targetLeftHalf {
+				newByte = bytes[pLength+sIndex] << 4
+			} else {
+				newByte = newByte | bytes[pLength+sIndex]
+				newBytes[targetIndex] = newByte
+				log.Printf("Setting %d, New Bytes: %08b", targetIndex, newBytes)
+				targetIndex++
+			}
+			targetLeftHalf = !targetLeftHalf
+		}
+		// Add sign
+		var sign byte
+		if isNegative {
+			sign = 13
+		} else {
+			sign = 12
+		}
+		if targetLeftHalf {
+			newBytes[targetIndex] = sign
+		} else {
+			newBytes[targetIndex] = newByte | sign
+		}
+		log.Printf("Setting %d, New Bytes: %08b", targetIndex, newBytes)
+		targetIndex++
+
+	}
+	log.Printf("Compressed to %08b", newBytes)
+	return newBytes
 }
 
 func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
@@ -498,7 +657,7 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 			byteSlice = append(byteSlice, datumByte)
 			stringBuffer = stringBuffer + m[datumByte]
 		}
-		fmt.Printf("%d -> %d -> %s\n", field.rawData, byteSlice, stringBuffer)
+		log.Printf("%d -> %d -> %s\n", field.rawData, byteSlice, stringBuffer)
 		fieldStartPos += field.length
 		field.Data = stringBuffer
 	} else if field.fieldType == DECIMAL {
@@ -515,6 +674,8 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 			endPos = (field.pLength - 1) / 2
 			extra4BitFlag = true
 		}
+		field.startPos = fieldStartPos
+		field.rawData = data[field.startPos : field.startPos+(((field.sLength+field.pLength)/2)+1)]
 		for j, datumByte := range data[fieldStartPos : fieldStartPos+endPos] {
 			byteSlice = append(byteSlice, datumByte)
 			high4Bits := datumByte >> 4
@@ -522,7 +683,7 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 			low4Bits := datumByte & (8 + 4 + 2 + 1)
 			stringBuffer = stringBuffer + strconv.Itoa(int(low4Bits))
 			log.Printf("High: %08b, Low: %08b", high4Bits, low4Bits)
-			log.Printf("%d: %d -> %d -> %s\n", j, datumByte, byteSlice, stringBuffer)
+			log.Printf("%d: %d -> %08b -> %s\n", j, datumByte, byteSlice, stringBuffer)
 		}
 		fieldStartPos = fieldStartPos + endPos
 		if extra4BitFlag {
@@ -530,7 +691,7 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 			byteSlice = append(byteSlice, data[fieldStartPos])
 			high4Bits := data[fieldStartPos] >> 4
 			stringBuffer = stringBuffer + strconv.Itoa(int(high4Bits))
-			log.Printf("?: %d -> %d -> %s\n", data[fieldStartPos], byteSlice, stringBuffer)
+			log.Printf("?: %d -> %08b -> %s\n", data[fieldStartPos], byteSlice, stringBuffer)
 		}
 
 		stringBuffer = stringBuffer + "."
@@ -557,7 +718,7 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 				low4Bits := datum & (8 + 4 + 2 + 1)
 				stringBuffer = stringBuffer + strconv.Itoa(int(low4Bits))
 				log.Printf("High: %08b, Low: %08b", high4Bits, low4Bits)
-				log.Printf("%d: %d -> %d -> %s\n", j, datum, byteSlice, stringBuffer)
+				log.Printf("%d: %d -> %08b -> %s\n", j, datum, byteSlice, stringBuffer)
 			} else {
 				log.Printf("Last 8 bytes: %08b", datum)
 				// this is the last byte, so we need to parse it special like
@@ -577,9 +738,9 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 			if err != nil {
 				panic(err)
 			}
-			log.Printf("%d: %d -> %d -> %s -> %v\n", j, datum, byteSlice, stringBuffer, stringAsDecimal)
+			log.Printf("%d: %d -> %08b-> %s -> %v\n", j, datum, byteSlice, stringBuffer, stringAsDecimal)
 		}
-		fmt.Printf("%d -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
+		log.Printf("%08b -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
 		field.Data = stringAsDecimal
 	} else if field.fieldType == SIGNED_BINARY {
 		datum := data[fieldStartPos : fieldStartPos+field.length]
@@ -625,7 +786,7 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("%s: %d -> %d -> %08b -> %s -> %d\n", field.label, datum, byteSlice, byteSlice, stringBuffer, result)
+		log.Printf("%s: %d -> %d -> %08b -> %s -> %d\n", field.label, datum, byteSlice, byteSlice, stringBuffer, result)
 		field.Data = result
 		field.startPos += field.length
 	} else if field.fieldType == FLOAT4 {
@@ -653,7 +814,7 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 
 		bits := binary.LittleEndian.Uint32(dataByte)
 		floatVal := math.Float32frombits(bits)
-		fmt.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
+		log.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
 		field.Data = floatVal
 	} else if field.fieldType == ALPHA_CHAR {
 		field.startPos = fieldStartPos
@@ -665,7 +826,7 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 			byteSlice = append(byteSlice, datumByte)
 			stringBuffer = stringBuffer + m[datumByte]
 		}
-		fmt.Printf("%d -> %d -> %s\n", field.rawData, byteSlice, stringBuffer)
+		log.Printf("%d -> %d -> %s\n", field.rawData, byteSlice, stringBuffer)
 		fieldStartPos += field.length
 		field.Data = stringBuffer
 	} else if field.fieldType == NUM_CHAR {
@@ -679,7 +840,7 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 			byteSlice = append(byteSlice, datumByte)
 			stringBuffer = stringBuffer + m[datumByte]
 		}
-		fmt.Printf("%d -> %d -> %s\n", datum, datum, stringBuffer)
+		log.Printf("%d -> %d -> %s\n", datum, datum, stringBuffer)
 		fieldStartPos += field.length
 		field.Data = stringBuffer
 	}
@@ -695,7 +856,7 @@ func ParseBinaryData(fileStruct *File, data []byte) {
 		fieldStartPos = parseFieldData(&fileStruct.Fields[i], data, fieldStartPos)
 		//fileStruct.Fields[i].startPos = startPos
 		//fileStruct.Fields[i].Data = dataResult
-		log.Printf("i=%d, label=%s, length=%d, startPos=%d, rawData=%08b\n", i, fileStruct.Fields[i].label, fileStruct.Fields[i].length, fileStruct.Fields[i].startPos, fileStruct.Fields[i].rawData)
+		log.Printf("i=%d, label=%s, length=%d, startPos=%d, rawData=%08b\n", i, fileStruct.Fields[i].label, fileStruct.Fields[i].length, fileStruct.Fields[i].startPos, fileStruct.Fields[i].GetRawData())
 	}
 	fileStruct.StartPos = fileStruct.StartPos + fileStruct.RecordLength
 }
@@ -703,7 +864,7 @@ func ParseBinaryData(fileStruct *File, data []byte) {
 func GetBinaryData(fileStruct *File) []byte {
 	var data []byte
 	for i, v := range fileStruct.Fields {
-		log.Printf("i=%d, label=%s, length=%d, startPos=%d, rawData=%08b\n", i, v.label, v.length, v.startPos, v.rawData)
+		log.Printf("i=%d, label=%s, length=%d, startPos=%d, rawData=%08b\n", i, v.label, v.length, v.startPos, v.GetRawData())
 		data = append(data, v.rawData...)
 	}
 	fileStruct.StartPos = fileStruct.StartPos + fileStruct.RecordLength
