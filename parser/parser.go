@@ -504,7 +504,7 @@ func (field *Field) setFieldData(newValue any) error {
 			log.Printf("Setting: %d = %v", fieldIndex, digit)
 			bytes[fieldIndex] = byte(digit)
 		}
-		for i, _ := range rightSide {
+		for i := range rightSide {
 			digit, err := strconv.Atoi(fmt.Sprintf("%d", rightSide[i]-48))
 			if err != nil {
 				panic(err)
