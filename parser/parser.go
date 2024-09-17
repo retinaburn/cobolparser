@@ -91,7 +91,6 @@ func getLength(fieldType PicType, newValue any) (int, error) {
 		}
 		return len(numVal), nil
 	case DECIMAL:
-		// TODO: What are we going to do here, we can't return two values as the length
 		decimalVal, ok := newValue.(decimal.Decimal)
 		if !ok {
 			return -1, errors.New("could not convert 'any' to string")
@@ -102,6 +101,9 @@ func getLength(fieldType PicType, newValue any) (int, error) {
 			decimalValLen--
 		}
 		return decimalValLen, nil
+	case UNSIGNED_BINARY:
+		numVal := newValue.([]uint8)
+		return len(numVal), nil
 	default:
 		return -1, fmt.Errorf("unsupported type for getLength %s", fieldType)
 	}
@@ -116,6 +118,8 @@ func getLengthOfField(field *Field) (int, error) {
 		return int(field.length), nil
 	case DECIMAL:
 		return int(field.sLength + 1 + field.pLength), nil
+	case UNSIGNED_BINARY:
+		return int(field.length), nil
 	default:
 		return -1, fmt.Errorf("unsupported type for getLength %s", field.fieldType)
 	}
@@ -145,7 +149,10 @@ func (f *Field) SetData(newValue any) error {
 	}
 	log.Printf("Setting %s to %v", f.label, newValue)
 	f.Data = newValue
-	f.setFieldData(newValue)
+	err = f.setFieldData(newValue)
+	if err != nil {
+		panic(err)
+	}
 	return nil
 }
 
@@ -501,7 +508,17 @@ func (field *Field) setFieldData(newValue any) error {
 		log.Printf("Final data: %08b", bytes)
 		field.SetRawData(bytes)
 		return nil
+	case UNSIGNED_BINARY:
+		log.Printf("Existing Raw Data: %08b", field.rawData)
+		val := newValue.([]uint8)
+		log.Printf("Unsigned Integer value: %08b", val)
+		bufBytes := new(bytes.Buffer)
+		binary.Write(bufBytes, binary.LittleEndian, val)
+		log.Printf("Buffer Bytes: %08b", bufBytes.Bytes())
+		field.SetRawData(bufBytes.Bytes())
+		log.Printf("New Value: %08b", field.rawData)
 
+		return nil
 	}
 	return fmt.Errorf("unsupported mapping for field data %s", field.fieldType)
 }
@@ -774,7 +791,8 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 		field.Data = num
 		field.startPos += field.length
 	} else if field.fieldType == UNSIGNED_BINARY {
-		datum := data[fieldStartPos : fieldStartPos+field.length]
+		field.startPos = fieldStartPos
+		datum := data[field.startPos : field.startPos+field.length]
 		var byteSlice []uint8
 		var stringBuffer string = ""
 
@@ -782,13 +800,11 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 			byteSlice = append(byteSlice, datumByte)
 			stringBuffer = stringBuffer + strconv.Itoa(int(datumByte))
 		}
-		result, err := strconv.Atoi(stringBuffer)
-		if err != nil {
-			panic(err)
-		}
-		log.Printf("%s: %d -> %d -> %08b -> %s -> %d\n", field.label, datum, byteSlice, byteSlice, stringBuffer, result)
-		field.Data = result
-		field.startPos += field.length
+
+		log.Printf("%s: %08b -> %08b -> %08b -> %s\n", field.label, datum, byteSlice, byteSlice, stringBuffer)
+		field.Data = byteSlice
+		fieldStartPos += field.length
+		field.rawData = byteSlice
 	} else if field.fieldType == FLOAT4 {
 		exponent := data[fieldStartPos : fieldStartPos+1]
 		fieldStartPos += 1
