@@ -77,3 +77,4 @@ Unsupported Definitions:
 * Float8
 * Didplay Numeric
 
+Made with lots of help from: https://techjogging.com/cobol-data-types.html
