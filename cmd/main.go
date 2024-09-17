@@ -582,6 +582,67 @@ func setsignedcomposite() {
 	log.Printf("%08b", field.GetRawData())
 }
 
+func setfloat() {
+	lexer := getLexer("resources/float.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/float.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	log.Printf("%08b", readBytes[0:len])
+
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "TRANS-ID-1"
+	printField(&fileStruct, fieldLabel)
+
+	field, err := fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+
+	err = field.SetData(float32(1.123e+19))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Reparse\n")
+	updatedBytes := parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
+
+	lexer = getLexer("resources/float.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
+	printField(&fileStruct, fieldLabel)
+
+	err = field.SetData(float32(6.987e+37))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Reparse\n")
+	updatedBytes = parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
+
+	lexer = getLexer("resources/float.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
+	printField(&fileStruct, fieldLabel)
+
+}
+
 func main() {
 
 	// number()
@@ -597,6 +658,7 @@ func main() {
 	//setnumber()
 	//setlargedecimal()
 	//setunsignedComposite()
-	setsignedcomposite()
+	//setsignedcomposite()
+	setfloat()
 
 }

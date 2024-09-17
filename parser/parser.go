@@ -107,6 +107,11 @@ func getLength(fieldType PicType, newValue any) (int, error) {
 	case SIGNED_BINARY:
 		numVal := newValue.([]int8)
 		return len(numVal), nil
+	case FLOAT4:
+		floatVal := newValue.(float32)
+		bits := math.Float32bits(floatVal)
+		log.Printf("Bits: %08b", bits)
+		return 4, nil
 	default:
 		return -1, fmt.Errorf("unsupported type for getLength %s", fieldType)
 	}
@@ -125,8 +130,10 @@ func getLengthOfField(field *Field) (int, error) {
 		return int(field.length), nil
 	case SIGNED_BINARY:
 		return int(field.length), nil
+	case FLOAT4:
+		return int(3 + 1), nil
 	default:
-		return -1, fmt.Errorf("unsupported type for getLength %s", field.fieldType)
+		return -1, fmt.Errorf("unsupported type for getLengthOfField %s", field.fieldType)
 	}
 }
 
@@ -542,6 +549,19 @@ func (field *Field) setFieldData(newValue any) error {
 		log.Printf("New Value: %08b", field.rawData)
 
 		return nil
+	case FLOAT4:
+		log.Printf("Existing Raw Data: %08b", field.rawData)
+		uint32Bits := make([]byte, 4)
+		//floatBits := math.Float32bits(newValue.(float32))
+		float32Val := newValue.(float32)
+		binary.LittleEndian.PutUint32(uint32Bits[:], math.Float32bits(float32Val))
+
+		log.Printf("Float bits: %08b", uint32Bits)
+
+		field.SetRawData(uint32Bits)
+		log.Printf("New Value: %08b", field.rawData)
+		return nil
+
 	}
 	return fmt.Errorf("unsupported mapping for field data %s", field.fieldType)
 }
@@ -815,10 +835,11 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 		fieldStartPos += field.length
 		field.rawData = byteSlice
 	} else if field.fieldType == FLOAT4 {
-		exponent := data[fieldStartPos : fieldStartPos+1]
-		fieldStartPos += 1
-		mantissa := data[fieldStartPos : fieldStartPos+3]
-		fieldStartPos += 3
+		field.startPos = fieldStartPos
+		exponent := data[field.startPos : field.startPos+3]
+		field.startPos += 3
+		mantissa := data[field.startPos : field.startPos+1]
+		field.startPos += 1
 
 		var exponentByte []byte
 		for _, val := range exponent {
@@ -834,13 +855,15 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 		log.Printf("Mantissa: %d -> %08b, %d -> %08d", mantissa, mantissa, mantissaByte, mantissaByte)
 
 		var dataByte []byte
-		dataByte = append(dataByte, exponentByte[0])
+		dataByte = append(dataByte, exponentByte...)
 		dataByte = append(dataByte, mantissaByte...)
 
 		bits := binary.LittleEndian.Uint32(dataByte)
 		floatVal := math.Float32frombits(bits)
 		log.Printf("%v -> %d -> %08b\n", floatVal, dataByte, bits)
 		field.Data = floatVal
+		fieldStartPos = field.startPos
+		field.rawData = dataByte
 	} else if field.fieldType == ALPHA_CHAR {
 		field.startPos = fieldStartPos
 		field.rawData = data[field.startPos : field.startPos+field.length]
