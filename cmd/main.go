@@ -53,7 +53,10 @@ func printField(fileStruct *parser.File, fieldLabel string) {
 		fmt.Printf("Raw Data: %08b\n", field.GetRawData())
 	case []uint8:
 		fmt.Printf("Data by field %s pull: %v\n", fieldLabel, field.Data)
-
+		fmt.Printf("Raw Data: %08b\n", field.GetRawData())
+	case []int8:
+		fmt.Printf("Data by field %s pull: %v\n", fieldLabel, field.Data)
+		fmt.Printf("Raw Data: %08b\n", field.GetRawData())
 	default:
 		fmt.Printf("Unsupported type in printField: %T, data: %08b", field.Data, field.GetRawData())
 	}
@@ -388,7 +391,6 @@ func setunsignedComposite() {
 	printField(&fileStruct, fieldLabel)
 
 	field, err := fileStruct.Field(fieldLabel)
-
 	if err != nil {
 		panic(err)
 	}
@@ -456,6 +458,130 @@ func setunsignedComposite() {
 	printField(&fileStruct, fieldLabel)
 }
 
+func setsignedcomposite() {
+
+	lexer := getLexer("resources/signed-composite.copybook")
+	fileStruct := parser.ParseLexData(lexer)
+
+	readBytes, len := getBytes("resources/signed-composite.ebcdic")
+
+	log.Printf("Read %d bytes", len)
+	log.Printf("%08b", readBytes[0:len])
+
+	parser.ParseBinaryData(&fileStruct, readBytes[0:len])
+
+	var fieldLabel = "TRANS-ID-1"
+	printField(&fileStruct, fieldLabel)
+
+	field, err := fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+
+	err = field.SetData([]int8{0, 1})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Reparse\n")
+	updatedBytes := parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
+
+	lexer = getLexer("resources/signed-composite.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
+	printField(&fileStruct, fieldLabel)
+
+	// One byte too short
+	err = field.SetData([]int8{1})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Reparse\n")
+	updatedBytes = parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
+
+	lexer = getLexer("resources/signed-composite.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
+	printField(&fileStruct, fieldLabel)
+
+	err = field.SetData([]int8{-1, 1})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Reparse\n")
+	updatedBytes = parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
+
+	lexer = getLexer("resources/signed-composite.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
+	printField(&fileStruct, fieldLabel)
+
+	fieldLabel = "TRANS-ID-20"
+	printField(&fileStruct, fieldLabel)
+
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+
+	err = field.SetData([]int8{-1, -1, -1, -1, -1, -1, -1, -1})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Reparse\n")
+	updatedBytes = parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
+
+	lexer = getLexer("resources/signed-composite.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
+	printField(&fileStruct, fieldLabel)
+
+	err = field.SetData([]int8{1})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Reparse\n")
+	updatedBytes = parser.GetBinaryData(&fileStruct)
+	fmt.Printf("Modified Data: %08b", updatedBytes)
+
+	lexer = getLexer("resources/signed-composite.copybook")
+	fileStruct = parser.ParseLexData(lexer)
+	parser.ParseBinaryData(&fileStruct, updatedBytes[0:len])
+	field, err = fileStruct.Field(fieldLabel)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("%08b", field.GetRawData())
+}
+
 func main() {
 
 	// number()
@@ -470,6 +596,7 @@ func main() {
 	//setany()
 	//setnumber()
 	//setlargedecimal()
-	setunsignedComposite()
+	//setunsignedComposite()
+	setsignedcomposite()
 
 }

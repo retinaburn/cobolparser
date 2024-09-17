@@ -104,6 +104,9 @@ func getLength(fieldType PicType, newValue any) (int, error) {
 	case UNSIGNED_BINARY:
 		numVal := newValue.([]uint8)
 		return len(numVal), nil
+	case SIGNED_BINARY:
+		numVal := newValue.([]int8)
+		return len(numVal), nil
 	default:
 		return -1, fmt.Errorf("unsupported type for getLength %s", fieldType)
 	}
@@ -119,6 +122,8 @@ func getLengthOfField(field *Field) (int, error) {
 	case DECIMAL:
 		return int(field.sLength + 1 + field.pLength), nil
 	case UNSIGNED_BINARY:
+		return int(field.length), nil
+	case SIGNED_BINARY:
 		return int(field.length), nil
 	default:
 		return -1, fmt.Errorf("unsupported type for getLength %s", field.fieldType)
@@ -519,6 +524,24 @@ func (field *Field) setFieldData(newValue any) error {
 		log.Printf("New Value: %08b", field.rawData)
 
 		return nil
+	case SIGNED_BINARY:
+		log.Printf("Existing Raw Data: %08b", field.rawData)
+		val := newValue.([]int8)
+		if len(val) < int(field.length) {
+			newVal := make([]int8, field.length)
+			for i := range val {
+				newVal[int(field.length)-1-i] = val[i]
+			}
+			val = newVal
+		}
+		log.Printf("Unsigned Integer value: %08b", val)
+		bufBytes := new(bytes.Buffer)
+		binary.Write(bufBytes, binary.LittleEndian, val)
+		log.Printf("Buffer Bytes: %08b", bufBytes.Bytes())
+		field.SetRawData(bufBytes.Bytes())
+		log.Printf("New Value: %08b", field.rawData)
+
+		return nil
 	}
 	return fmt.Errorf("unsupported mapping for field data %s", field.fieldType)
 }
@@ -760,36 +783,22 @@ func parseFieldData(field *Field, data []byte, fieldStartPos int32) int32 {
 		log.Printf("%08b -> %s -> %v\n", byteSlice, stringBuffer, stringAsDecimal)
 		field.Data = stringAsDecimal
 	} else if field.fieldType == SIGNED_BINARY {
-		datum := data[fieldStartPos : fieldStartPos+field.length]
+		field.startPos = fieldStartPos
+		datum := data[field.startPos : field.startPos+field.length]
 
-		isLessThan4Bytes := false
+		//isLessThan4Bytes := false
 		signBit := datum[0] >> 7
 		log.Printf("Sign Bit: %b\n", signBit)
 
-		// We have to handle data lengths of 2 bytes specially
-		// because the binary.Read can't operate on them natively
-		if len(datum) < 4 {
-			isLessThan4Bytes = true
-			datum4Byte := make([]byte, 4)
-			datum4Byte[2] = datum[0]
-			datum4Byte[3] = datum[1]
-			datum = datum4Byte
+		var num = make([]int8, len(datum))
+		for i := range datum {
+			num[i] = int8(datum[i])
 		}
 
-		var num int32
-		err := binary.Read(bytes.NewReader(datum), binary.BigEndian, &num)
-		if err != nil {
-			fmt.Println(err)
-		}
-		if isLessThan4Bytes && signBit == 1 {
-			newNum := (65536 - num) * -1
-			log.Printf("Num: %d -> New Num: %d", num, newNum)
-			num = newNum
-		}
-
-		log.Printf("bytes: %08b -> int: %d %d -> %d\n", datum, int(datum[0]), int(datum[1]), num)
+		log.Printf("bytes: %08b -> datum: %d -> %d\n", datum, datum, num)
 		field.Data = num
-		field.startPos += field.length
+		fieldStartPos += field.length
+		field.rawData = datum
 	} else if field.fieldType == UNSIGNED_BINARY {
 		field.startPos = fieldStartPos
 		datum := data[field.startPos : field.startPos+field.length]
